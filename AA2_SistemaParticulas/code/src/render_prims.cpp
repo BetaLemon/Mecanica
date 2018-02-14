@@ -5,7 +5,7 @@
 // Boolean variables allow to show/hide the primitives
 bool renderSphere = false;
 bool renderCapsule = false;
-bool renderParticles = false;
+bool renderParticles = true;
 bool renderCloth = false;
 bool renderCube = false;
 
@@ -66,7 +66,7 @@ void renderPrims() {
 	if (renderParticles) {
 		// You may need to rethink this piece of code...
 		int startDrawingFromParticle = 0;
-		int numParticlesToDraw = LilSpheres::maxParticles;
+		int numParticlesToDraw = 900; //LilSpheres::maxParticles;
 		LilSpheres::drawParticles(startDrawingFromParticle, numParticlesToDraw);
 		// .............................................
 	}
