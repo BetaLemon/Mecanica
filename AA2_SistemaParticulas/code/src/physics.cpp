@@ -1,13 +1,33 @@
 #include <imgui\imgui.h>
 #include <imgui\imgui_impl_sdl_gl3.h>
 #include <glm\vec3.hpp>
+#include <glm\geometric.hpp>
+
+#define BOX_TOP 0
+#define BOX_BOTTOM 1
+#define BOX_LEFT 2
+#define BOX_RIGHT 3
+#define BOX_FRONT 4
+#define BOX_BACK 5
+#define TOTAL_BOX_PLANES 6
+
+bool checkCollision(Plane plane, Particle particle);
 
 struct Particle {
 	glm::vec3 pos;
 	glm::vec3 vel;
+
+	glm::vec3 prevPos;
+	glm::vec3 prevVel;
+};
+
+struct Plane {
+	glm::vec3 normal;
+	float d;
 };
 
 Particle particles[SHRT_MAX];	// Esto aquí muy feo.
+Plane planes[TOTAL_BOX_PLANES];
 
 namespace LilSpheres {															// Parámetros:
 	extern void updateParticles(int startIdx, int count, float* array_data);	// (donde empieza, cuántos elementos, un array así:
@@ -52,6 +72,34 @@ void PhysicsInit() {
 		randVel = glm::vec3(rand() % 10, rand() % 10, rand() % 10);
 		particles[i] = { randPos, randVel };
 	}
+
+	// Box planes setup:
+	Plane current;
+	
+		// Top:
+	current.normal = glm::vec3(0, -1, 0);
+	current.d = 10;
+	planes[BOX_TOP] = current;
+		// Bottom:
+	current.normal = glm::vec3(0, 1, 0);
+	current.d = 0;
+	planes[BOX_BOTTOM] = current;
+		// Left:
+	current.normal = glm::vec3(1, 0, 0);
+	current.d = -5;
+	planes[BOX_LEFT] = current;
+		// Right:
+	current.normal = glm::vec3(-1, 0, 0);
+	current.d = 5;
+	planes[BOX_RIGHT] = current;
+		// Front:
+	current.normal = glm::vec3(0, 0, -1);
+	current.d = 5;
+	planes[BOX_FRONT] = current;
+		// Back:
+	current.normal = glm::vec3(0, 0, 1);
+	current.d = -5;
+	planes[BOX_BACK] = current;
 }
 
 void PhysicsUpdate(float dt) {
@@ -63,7 +111,7 @@ void PhysicsUpdate(float dt) {
 	for (int i = 0; i < SHRT_MAX; i++){
 		glm::vec3 newPos, newVel;
 		Particle current = particles[i];
-
+		/*
 		// Check collision:
 		// en lugar de cutre, habría que usar la formula de la Colision (la d es la de la ecuación del plano)
 		//Cutre:
@@ -76,11 +124,31 @@ void PhysicsUpdate(float dt) {
 		if (current.pos.z > 5 || current.pos.z < -5) {
 			current.vel.z *= -1;
 		}
-
+		*/
 		newPos = current.pos + dt * current.vel;
 		newVel = current.vel + dt * gravity; // Assuming mass is 1.
 		current.pos = newPos;
 		current.vel = newVel;
+
+		// Check collision: BIEN HECHO!
+		for (int i = 0; i < TOTAL_BOX_PLANES; i++) {
+			if (checkCollision(planes[i], current)) {
+				// Mirror position and velocity:
+				glm::vec3 mirroredPos, mirroredVel;
+				mirroredPos = newPos - 2 * (glm::dot(planes[i].normal, newPos) + planes[i].d)*planes[i].normal;
+				mirroredVel = newVel - 2 * (glm::dot(planes[i].normal, newVel) + planes[i].d)*planes[i].normal;
+
+				current.pos = mirroredPos;
+				current.vel = mirroredVel;
+			}
+		}
+
+		// Updating position and velocity:
+		//newPos = current.pos + dt * current.vel;
+		//newVel = current.vel + dt * gravity; // Assuming mass is 1.
+		current.prevPos = current.pos;
+		current.prevVel = current.vel;
+
 
 	
 
@@ -105,4 +173,12 @@ void PhysicsUpdate(float dt) {
 void PhysicsCleanup() {
 	// Do your cleanup code here...
 	// ............................
+}
+
+bool checkCollision(Plane plane, Particle particle) {
+	bool hasCollided = false;
+	if ((glm::dot(plane.normal, particle.prevPos) + plane.d)*(glm::dot(plane.normal, particle.pos) + plane.d) <= 0) {
+		hasCollided = true;
+	}
+	return hasCollided;
 }

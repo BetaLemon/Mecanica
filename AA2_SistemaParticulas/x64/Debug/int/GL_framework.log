@@ -1,5 +1,1 @@
-﻿  physics.cpp
-  GL_framework.vcxproj -> C:\Users\aweiland\Desktop\Mecanica\AA2_SistemaParticulas\x64\Debug\GL_framework.exe
-  GL_framework.vcxproj -> C:\Users\aweiland\Desktop\Mecanica\AA2_SistemaParticulas\x64\Debug\GL_framework.pdb (Partial PDB)
-  0 File(s) copied
-  0 File(s) copied
+﻿C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.Cpp.Platform.targets(57,5): error MSB8020: The build tools for v141 (Platform Toolset = 'v141') cannot be found. To build using the v141 build tools, please install v141 build tools.  Alternatively, you may upgrade to the current Visual Studio tools by selecting the Project menu or right-click the solution, and then selecting "Retarget solution".
