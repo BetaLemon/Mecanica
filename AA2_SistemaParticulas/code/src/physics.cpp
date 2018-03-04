@@ -2,6 +2,7 @@
 #include <imgui\imgui_impl_sdl_gl3.h>
 #include <glm\vec3.hpp>
 #include <glm\geometric.hpp>
+#include <vector>
 
 #define BOX_TOP 0
 #define BOX_BOTTOM 1
@@ -11,12 +12,13 @@
 #define BOX_BACK 5
 #define TOTAL_BOX_PLANES 6
 
-bool checkCollision(Plane plane, Particle particle);
+#define MAX_PARTICLE_LIFE 2
+#define MAX_PARTICLE_NUM 100
 
 struct Particle {
 	glm::vec3 pos;
 	glm::vec3 vel;
-
+	float life;
 	glm::vec3 prevPos;
 	glm::vec3 prevVel;
 };
@@ -26,7 +28,10 @@ struct Plane {
 	float d;
 };
 
-Particle particles[SHRT_MAX];	// Esto aquí muy feo.
+bool checkCollision(Plane plane, Particle particle);
+
+//Particle particles[SHRT_MAX];	// Esto aquí muy feo.
+std::vector<Particle> particles;
 Plane planes[TOTAL_BOX_PLANES];
 
 namespace LilSpheres {															// Parámetros:
@@ -61,16 +66,28 @@ void GUI() {
 	}
 }
 
+Particle GenerateParticle() {
+	glm::vec3 randPos, randVel;
+	randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
+	randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
+	Particle tmp;
+	tmp.life = 0;
+	tmp.pos = randPos;
+	tmp.vel = randVel;
+	return tmp;
+}
+
 void PhysicsInit() {
 	// Do your initialization code here...
 	// ...................................
 
 	//for (int i = 0; i < SHRT_MAX; i++) { particles[i] = { glm::vec3(0, 0, 0), glm::vec3(0, 0, 0)}; }
 	for (int i = 0; i < SHRT_MAX; i++) {
-		glm::vec3 randPos, randVel;
-		randPos = glm::vec3(rand()%5, rand()%5, rand()%5);
-		randVel = glm::vec3(rand() % 10, rand() % 10, rand() % 10);
-		particles[i] = { randPos, randVel };
+		//glm::vec3 randPos, randVel;
+		//randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
+		//randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
+		//particles.push_back({ randPos, randVel });
+		particles.push_back(GenerateParticle());
 	}
 
 	// Box planes setup:
@@ -105,10 +122,17 @@ void PhysicsInit() {
 void PhysicsUpdate(float dt) {
 	// Do your update code here...
 	// ...........................
+
+	if (particles.size() < SHRT_MAX) {
+		for (int i = 0; i < SHRT_MAX - particles.size(); i++) {
+			particles.push_back(GenerateParticle());
+		}
+	}
 	
 	glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
+
 	/// PARTICLES:
-	for (int i = 0; i < SHRT_MAX; i++){
+	for (int i = 0; i < particles.size(); i++){
 		glm::vec3 newPos, newVel;
 		Particle current = particles[i];
 		/*
@@ -125,6 +149,19 @@ void PhysicsUpdate(float dt) {
 			current.vel.z *= -1;
 		}
 		*/
+
+		current.life += dt;
+		if (current.life > MAX_PARTICLE_LIFE) {
+			/*glm::vec3 randPos, randVel;
+			randPos = glm::vec3((rand() % 10)-5, -(rand() % 10), (rand() % 10)-5);
+			randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
+			current = { randPos, randVel };
+			current.life = 0;
+			particles[i] = current;*/
+			particles[i] = GenerateParticle();
+			break;
+		}
+
 		newPos = current.pos + dt * current.vel;
 		newVel = current.vel + dt * gravity; // Assuming mass is 1.
 		current.pos = newPos;
