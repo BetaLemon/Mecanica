@@ -21,6 +21,10 @@ float MAX_PARTICLE_LIFE = 3;
 
 // Type of Emitter being used:
 enum class ParticleEmitterType{ FOUNTAIN, CASCADE };
+
+// Type of Capsule collision:
+enum class CapsuleCollision { A, B, BODY, NONE };
+
 // Data structure for Particles:
 struct Particle {
 	glm::vec3 pos = { 0,0,0 };
@@ -38,11 +42,26 @@ struct Plane {
 	float d;
 };
 
+struct SphereObj {
+	glm::vec3 pos;
+	float radius;
+};
+
+struct CapsuleObj {
+	glm::vec3 a;
+	glm::vec3 b;
+	float radius;
+};
+
 // Declaration of functions, defined below the main code:
-bool checkCollision(Plane plane, Particle particle);
+bool checkPlaneCollision(Plane plane, Particle particle);
+bool checkSphereCollision(Particle particle);
+CapsuleCollision checkCapsuleCollider(Particle particle);
 Particle GenerateParticle();
 void ParticlesUpdate(float dt);
+Particle MoveAndCollideParticle(Particle particle, float dt);
 void ParticlesToGPU();
+float VectorMagnitude(glm::vec3 vector);
 
 //Particle particles[SHRT_MAX];	// Esto aquí muy feo.
 float *particlesGPU;
@@ -59,6 +78,9 @@ int EmissionRate = 1;
 int simulationSpeed = 1;
 float elasticity = 1;
 
+SphereObj sphere;
+CapsuleObj capsule;
+
 namespace LilSpheres {															// Parámetros:
 	extern void updateParticles(int startIdx, int count, float* array_data);	// (donde empieza, cuántos elementos, un array así:
 																				// [x, y, z, x, y, z, x, y, z, x, y, z, ...]
@@ -70,6 +92,23 @@ namespace LilSpheres {															// Parámetros:
 	*/
 	extern const int maxParticles;
 }
+
+namespace Sphere {
+	extern void setupSphere(glm::vec3 pos = glm::vec3(0.f, 1.f, 0.f), float radius = 1.f);
+	extern void cleanupSphere();
+	extern void updateSphere(glm::vec3 pos, float radius = 1.f);
+	extern void drawSphere();
+}
+
+namespace Capsule {
+	extern void setupCapsule(glm::vec3 posA = glm::vec3(-3.f, 2.f, -2.f), glm::vec3 posB = glm::vec3(-4.f, 2.f, 2.f), float radius = 1.f);
+	extern void cleanupCapsule();
+	extern void updateCapsule(glm::vec3 posA, glm::vec3 posB, float radius = 1.f);
+	extern void drawCapsule();
+}
+
+extern bool renderSphere;
+extern bool renderCapsule;
 
 bool show_test_window = false;
 void GUI() {
@@ -86,6 +125,7 @@ void GUI() {
 		if(ImGui::Button("Reset particles")) {
 			for (int i = 0; i < LilSpheres::maxParticles; i++) {
 				particles[i].life = MAX_PARTICLE_LIFE+1;
+				particles[i].pos = { 0,0,0 };
 			}
 		}
 		ImGui::SliderInt("Simulation Speed (higher is slower)", &simulationSpeed, 1, 10);
@@ -112,6 +152,26 @@ void GUI() {
 		ImGui::Separator();
 		ImGui::Text("// ELASTICITY");
 		ImGui::SliderFloat("Elastic coefficient", &elasticity, 0.f, 1.f);
+		ImGui::Separator();
+		ImGui::Text("// SPHERE");
+		ImGui::Checkbox("Show Sphere", &renderSphere);
+		if (renderSphere) {
+			if (sphere.radius == 0) { sphere.radius = 2; }
+			ImGui::SliderFloat("Radius", &sphere.radius, 0.1f, 10.f);
+			ImGui::DragFloat3("Center Position", &sphere.pos[0], 1.f, -10.f, 10.f);
+			//ImGui::DragFloat("Y-Axis Pos.", &sphere.pos[1], 1.f, -10.f, 10.f);
+			//ImGui::DragFloat("Z-Axis Pos.", &sphere.pos[2], 1.f, -10.f, 10.f);
+		}
+		else { sphere.radius = 0; }
+		ImGui::Text("// CAPSULE");
+		ImGui::Checkbox("Show Capsule", &renderCapsule);
+		if (renderCapsule) {
+			if (capsule.radius == 0) { capsule.radius = 2; }
+			ImGui::SliderFloat("Radius", &capsule.radius, 0.1f, 10.f);
+			ImGui::DragFloat3("Point A", &capsule.a[0], 1.f, -10.f, 10.f);
+			ImGui::DragFloat3("Point B", &capsule.b[0], 1.f, -10.f, 10.f);
+		}
+		else { sphere.radius = 0; }
 	}
 	// .........................
 
@@ -170,6 +230,16 @@ void PhysicsInit() {
 	planes[BOX_BACK] = current;
 
 	ParticlesToGPU();
+
+	sphere.pos = { 0,0,0 };
+	sphere.radius = 2.f;
+
+	capsule.a = { 0,0,0 };
+	capsule.b = { 0, 5, 0 };
+	capsule.radius = 2.f;
+
+	Sphere::setupSphere(sphere.pos, sphere.radius);
+	Capsule::setupCapsule(capsule.a, capsule.b, capsule.radius);
 }
 
 void PhysicsUpdate(float dt) {
@@ -185,41 +255,29 @@ void PhysicsUpdate(float dt) {
 	
 	// Pasamos del array apto para CPU al array apto para GPU:
 	ParticlesToGPU();
+
+	Sphere::updateSphere(sphere.pos, sphere.radius);
+	Sphere::drawSphere();
+
+	Capsule::updateCapsule(capsule.a, capsule.b, capsule.radius);
+	Capsule::drawCapsule();
 }
 
 void PhysicsCleanup() {
 	// Do your cleanup code here...
 	// ............................
+	particles = nullptr;
+	particlesGPU = nullptr;
+	delete particles;
+	delete particlesGPU;
+
+	Sphere::cleanupSphere();
+	Capsule::cleanupCapsule();
 }
 
-Particle MoveAndCollideParticle(Particle particle, float dt) {
-	glm::vec3 newPos, newVel;
+//	 SPECIAL FUNCTIONS
 
-	newPos = particle.pos + dt * particle.vel;
-	newVel = particle.vel + dt * gravity; // Assuming mass is 1.
-	particle.pos = newPos;
-	particle.vel = newVel;
-
-	// Check collision:
-	for (int j = 0; j < TOTAL_BOX_PLANES; j++) {
-		if (checkCollision(planes[j], particle)) {
-			// Mirror position and velocity:
-			glm::vec3 mirroredPos, mirroredVel;
-			mirroredPos = newPos - (1+elasticity) * (glm::dot(planes[j].normal, newPos) + planes[j].d)*planes[j].normal;
-			mirroredVel = newVel - (1+elasticity) * (glm::dot(planes[j].normal, newVel) + planes[j].d)*planes[j].normal;
-
-			particle.pos = mirroredPos;
-			particle.vel = mirroredVel;
-		}
-	}
-
-	// Updating previous position and velocity:
-	particle.prevPos = particle.pos;
-	particle.prevVel = particle.vel;
-
-	return particle;
-}
-
+// Updates particles:
 void ParticlesUpdate(float dt) {
 	bool needParticles = true;
 	int generatedParticles = 0;
@@ -239,6 +297,93 @@ void ParticlesUpdate(float dt) {
 	}
 }
 
+// Moves a particle and applies collision if necessary:
+Particle MoveAndCollideParticle(Particle particle, float dt) {
+	glm::vec3 newPos, newVel;
+
+	newPos = particle.pos + dt * particle.vel;
+	newVel = particle.vel + dt * gravity; // Assuming mass is 1.
+	particle.pos = newPos;
+	particle.vel = newVel;
+
+	// Check collision:
+	for (int j = 0; j < TOTAL_BOX_PLANES; j++) {
+		glm::vec3 mirroredPos, mirroredVel;
+		glm::vec3 collPoint;
+		Plane colPlane;
+
+		// Plane collision:
+		if (checkPlaneCollision(planes[j], particle)) {
+			// Mirror position and velocity:
+			glm::vec3 mirroredPos, mirroredVel;
+			mirroredPos = newPos - (1+elasticity) * (glm::dot(planes[j].normal, newPos) + planes[j].d)*planes[j].normal;
+			mirroredVel = newVel - (1+elasticity) * (glm::dot(planes[j].normal, newVel) + planes[j].d)*planes[j].normal;
+
+			particle.pos = mirroredPos;
+			particle.vel = mirroredVel;
+		}
+		//Sphere Collision:
+		if (checkSphereCollision(particle)) {
+			collPoint = particle.pos;	// CUTRE!! TENDRÍA QUE SER EL PUNTO EXACTO!
+			Plane colPlane;
+			colPlane.normal = collPoint - sphere.pos;
+			colPlane.normal = glm::normalize(colPlane.normal);
+			colPlane.d = -1 * (colPlane.normal.x*collPoint.x + colPlane.normal.y*collPoint.y + colPlane.normal.z*collPoint.z);
+			mirroredPos = newPos - (1 + elasticity) * (glm::dot(colPlane.normal, newPos) + colPlane.d)*colPlane.normal;
+			mirroredVel = newVel - (1 + elasticity) * (glm::dot(colPlane.normal, newVel) + colPlane.d)*colPlane.normal;
+
+			particle.pos = mirroredPos;
+			particle.vel = mirroredVel;
+		}
+		// Capsule collision:
+		switch (checkCapsuleCollider(particle)) {
+		case CapsuleCollision::A:
+			collPoint = particle.pos;	// CUTRE!! TENDRÍA QUE SER EL PUNTO EXACTO!
+			colPlane.normal = collPoint - capsule.a;
+			colPlane.normal = glm::normalize(colPlane.normal);
+			colPlane.d = -1 * (colPlane.normal.x*collPoint.x + colPlane.normal.y*collPoint.y + colPlane.normal.z*collPoint.z);
+			mirroredPos = newPos - (1 + elasticity) * (glm::dot(colPlane.normal, newPos) + colPlane.d)*colPlane.normal;
+			mirroredVel = newVel - (1 + elasticity) * (glm::dot(colPlane.normal, newVel) + colPlane.d)*colPlane.normal;
+
+			particle.pos = mirroredPos;
+			particle.vel = mirroredVel;
+			break;
+		case CapsuleCollision::B:
+			collPoint = particle.pos;	// CUTRE!! TENDRÍA QUE SER EL PUNTO EXACTO!
+			colPlane.normal = collPoint - capsule.b;
+			colPlane.normal = glm::normalize(colPlane.normal);
+			colPlane.d = -1 * (colPlane.normal.x*collPoint.x + colPlane.normal.y*collPoint.y + colPlane.normal.z*collPoint.z);
+			mirroredPos = newPos - (1 + elasticity) * (glm::dot(colPlane.normal, newPos) + colPlane.d)*colPlane.normal;
+			mirroredVel = newVel - (1 + elasticity) * (glm::dot(colPlane.normal, newVel) + colPlane.d)*colPlane.normal;
+
+			particle.pos = mirroredPos;
+			particle.vel = mirroredVel;
+			break;
+		case CapsuleCollision::BODY:
+			collPoint = particle.pos;	// CUTRE!! TENDRÍA QUE SER EL PUNTO EXACTO!
+			colPlane.normal = collPoint - capsule.b;
+			colPlane.normal = glm::normalize(colPlane.normal);
+			colPlane.d = -1 * (colPlane.normal.x*collPoint.x + colPlane.normal.y*collPoint.y + colPlane.normal.z*collPoint.z);
+			mirroredPos = newPos - (1 + elasticity) * (glm::dot(colPlane.normal, newPos) + colPlane.d)*colPlane.normal;
+			mirroredVel = newVel - (1 + elasticity) * (glm::dot(colPlane.normal, newVel) + colPlane.d)*colPlane.normal;
+
+			particle.pos = mirroredPos;
+			particle.vel = mirroredVel;
+			break;
+		case CapsuleCollision::NONE:
+			break;
+		default:;
+		}
+	}
+
+	// Updating previous position and velocity:
+	particle.prevPos = particle.pos;
+	particle.prevVel = particle.vel;
+
+	return particle;
+}
+
+// Translates the particle array to an array the GPU understands:
 void ParticlesToGPU() {
 	int j = 0;
 	for (int i = 0; i < LilSpheres::maxParticles; i++) {
@@ -253,7 +398,8 @@ void ParticlesToGPU() {
 	LilSpheres::updateParticles(0, LilSpheres::maxParticles, &particlesGPU[0]);
 }
 
-bool checkCollision(Plane plane, Particle particle) {
+// Checks for collision with a plane:
+bool checkPlaneCollision(Plane plane, Particle particle) {
 	bool hasCollided = false;
 	if ((glm::dot(plane.normal, particle.prevPos) + plane.d)*(glm::dot(plane.normal, particle.pos) + plane.d) <= 0) {
 		hasCollided = true;
@@ -261,11 +407,35 @@ bool checkCollision(Plane plane, Particle particle) {
 	return hasCollided;
 }
 
+// Check for collision with a sphere:
+bool checkSphereCollision(Particle particle) {
+	bool hasCollided = false;
+	if (glm::distance(particle.pos, sphere.pos) < sphere.radius) {
+		hasCollided = true;
+	}
+	return hasCollided;
+}
+
+CapsuleCollision checkCapsuleCollider(Particle particle) {
+	CapsuleCollision collision = CapsuleCollision::NONE;
+	if (glm::distance(particle.pos, capsule.a) < capsule.radius) {
+		collision = CapsuleCollision::A;
+	}
+	if (glm::distance(particle.pos, capsule.b) < capsule.radius) {
+		collision = CapsuleCollision::B;
+	}
+	if (VectorMagnitude(glm::cross(capsule.b - capsule.a, capsule.a - particle.pos)) < capsule.radius) {
+		collision = CapsuleCollision::BODY;
+	}
+	return collision;
+}
+
+// Generates new particles: (also used for renewing existing ones).
 Particle GenerateParticle() {
 	glm::vec3 randPos, randVel;
 	Particle tmp;
 	float randomZ;
-	if (randomInertia) { inertia = rand() % 10; }
+	if (randomInertia) { inertia = (float)(rand() / RAND_MAX)*10; }
 	switch (emitterType) {
 	case ParticleEmitterType::CASCADE:
 		randomZ = 0 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (10 - 0)));
@@ -291,3 +461,6 @@ Particle GenerateParticle() {
 	return tmp;
 }
 
+float VectorMagnitude(glm::vec3 vector) {
+	return sqrt(pow(vector.x, 2) + pow(vector.y, 2) + pow(vector.z, 2));
+}
