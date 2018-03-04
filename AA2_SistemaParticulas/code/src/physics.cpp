@@ -12,8 +12,10 @@
 #define BOX_BACK 5
 #define TOTAL_BOX_PLANES 6
 
-#define MAX_PARTICLE_LIFE 2
-#define MAX_PARTICLE_NUM 100
+#define MAX_PARTICLE_LIFE 3
+#define MAX_PARTICLE_NUM 10
+
+enum class ParticleEmitterType{ FOUNTAIN, CASCADE };
 
 struct Particle {
 	glm::vec3 pos;
@@ -29,10 +31,14 @@ struct Plane {
 };
 
 bool checkCollision(Plane plane, Particle particle);
+Particle GenerateParticle();
 
 //Particle particles[SHRT_MAX];	// Esto aquí muy feo.
 std::vector<Particle> particles;
 Plane planes[TOTAL_BOX_PLANES];
+ParticleEmitterType emitterType = ParticleEmitterType::CASCADE;
+
+float Ypos = 0;
 
 namespace LilSpheres {															// Parámetros:
 	extern void updateParticles(int startIdx, int count, float* array_data);	// (donde empieza, cuántos elementos, un array así:
@@ -53,7 +59,13 @@ void GUI() {
 	// Do your GUI code here....
 	{	
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);//FrameRate
-		
+		ImGui::SliderFloat("Y position of cascade", &Ypos, 0, 10);
+		if(ImGui::Button("Reset particles")) {
+			for (int i = 0; i < particles.size(); i++) {
+				particles[i] = GenerateParticle();
+			}
+		}
+		ImGui::Text("Life of particle: %.3f", particles[0].life);
 	}
 	// .........................
 	
@@ -66,23 +78,12 @@ void GUI() {
 	}
 }
 
-Particle GenerateParticle() {
-	glm::vec3 randPos, randVel;
-	randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
-	randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
-	Particle tmp;
-	tmp.life = 0;
-	tmp.pos = randPos;
-	tmp.vel = randVel;
-	return tmp;
-}
-
 void PhysicsInit() {
 	// Do your initialization code here...
 	// ...................................
 
 	//for (int i = 0; i < SHRT_MAX; i++) { particles[i] = { glm::vec3(0, 0, 0), glm::vec3(0, 0, 0)}; }
-	for (int i = 0; i < SHRT_MAX; i++) {
+	for (int i = 0; i < MAX_PARTICLE_NUM; i++) {
 		//glm::vec3 randPos, randVel;
 		//randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
 		//randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
@@ -122,19 +123,18 @@ void PhysicsInit() {
 void PhysicsUpdate(float dt) {
 	// Do your update code here...
 	// ...........................
-
-	if (particles.size() < SHRT_MAX) {
-		for (int i = 0; i < SHRT_MAX - particles.size(); i++) {
+	/*
+	if (particles.size() < MAX_PARTICLE_NUM) {
+		for (int i = 0; i < MAX_PARTICLE_NUM - particles.size(); i++) {
 			particles.push_back(GenerateParticle());
 		}
 	}
-	
+	*/
 	glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
 
 	/// PARTICLES:
 	for (int i = 0; i < particles.size(); i++){
 		glm::vec3 newPos, newVel;
-		Particle current = particles[i];
 		/*
 		// Check collision:
 		// en lugar de cutre, habría que usar la formula de la Colision (la d es la de la ecuación del plano)
@@ -150,8 +150,8 @@ void PhysicsUpdate(float dt) {
 		}
 		*/
 
-		current.life += dt;
-		if (current.life > MAX_PARTICLE_LIFE) {
+		particles[i].life += dt;
+		if (particles[i].life > MAX_PARTICLE_LIFE) {
 			/*glm::vec3 randPos, randVel;
 			randPos = glm::vec3((rand() % 10)-5, -(rand() % 10), (rand() % 10)-5);
 			randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
@@ -159,43 +159,41 @@ void PhysicsUpdate(float dt) {
 			current.life = 0;
 			particles[i] = current;*/
 			particles[i] = GenerateParticle();
+			//particles.erase(particles.begin() + i);
 			break;
 		}
 
-		newPos = current.pos + dt * current.vel;
-		newVel = current.vel + dt * gravity; // Assuming mass is 1.
-		current.pos = newPos;
-		current.vel = newVel;
+		newPos = particles[i].pos + dt * particles[i].vel;
+		newVel = particles[i].vel + dt * gravity; // Assuming mass is 1.
+		particles[i].pos = newPos;
+		particles[i].vel = newVel;
 
 		// Check collision: BIEN HECHO!
-		for (int i = 0; i < TOTAL_BOX_PLANES; i++) {
-			if (checkCollision(planes[i], current)) {
+		for (int j = 0; j < TOTAL_BOX_PLANES; j++) {
+			if (checkCollision(planes[j], particles[i])) {
 				// Mirror position and velocity:
 				glm::vec3 mirroredPos, mirroredVel;
-				mirroredPos = newPos - 2 * (glm::dot(planes[i].normal, newPos) + planes[i].d)*planes[i].normal;
-				mirroredVel = newVel - 2 * (glm::dot(planes[i].normal, newVel) + planes[i].d)*planes[i].normal;
+				mirroredPos = newPos - 2 * (glm::dot(planes[j].normal, newPos) + planes[j].d)*planes[j].normal;
+				mirroredVel = newVel - 2 * (glm::dot(planes[j].normal, newVel) + planes[j].d)*planes[j].normal;
 
-				current.pos = mirroredPos;
-				current.vel = mirroredVel;
+				particles[i].pos = mirroredPos;
+				particles[i].vel = mirroredVel;
 			}
 		}
 
 		// Updating position and velocity:
 		//newPos = current.pos + dt * current.vel;
 		//newVel = current.vel + dt * gravity; // Assuming mass is 1.
-		current.prevPos = current.pos;
-		current.prevVel = current.vel;
+		particles[i].prevPos = particles[i].pos;
+		particles[i].prevVel = particles[i].vel;
 
-
-	
-
-		particles[i] = current;
+		//particles[i] = current;
 	}
 	
 	// Pasamos del array apto para CPU al array apto para GPU:
-	float particlesGPU[SHRT_MAX * 3];
+	float particlesGPU[MAX_PARTICLE_NUM * 3];
 	int j = 0;
-	for (int i = 0; i < SHRT_MAX; i++) {
+	for (int i = 0; i < particles.size(); i++) {
 		particlesGPU[j] = particles[i].pos.x;
 		j++;
 		particlesGPU[j] = particles[i].pos.y;
@@ -204,7 +202,7 @@ void PhysicsUpdate(float dt) {
 		j++;
 	}
 	// Actualizamos las partículas:
-	LilSpheres::updateParticles(0, SHRT_MAX, particlesGPU);
+	LilSpheres::updateParticles(0, MAX_PARTICLE_NUM, particlesGPU);
 }
 
 void PhysicsCleanup() {
@@ -218,4 +216,29 @@ bool checkCollision(Plane plane, Particle particle) {
 		hasCollided = true;
 	}
 	return hasCollided;
+}
+
+Particle GenerateParticle() {
+	glm::vec3 randPos, randVel;
+	Particle tmp;
+	float randomZ;
+	switch (emitterType) {
+	case ParticleEmitterType::CASCADE:
+		randomZ = 0 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (10 - 0)));
+		randomZ -= 5;
+		randPos = glm::vec3(0, -Ypos, randomZ);
+		randVel = glm::vec3(0, -1, 0);
+		break;
+	case ParticleEmitterType::FOUNTAIN:
+		break;
+	default:
+		randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
+		randVel = glm::vec3((rand() % 2) - 1, (rand() % 2) - 1, (rand() % 2) - 1);
+		break;
+	}
+
+	tmp.life = 0;
+	tmp.pos = randPos;
+	tmp.vel = randVel;
+	return tmp;
 }
