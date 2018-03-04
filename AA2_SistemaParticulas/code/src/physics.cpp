@@ -70,7 +70,7 @@ Plane planes[TOTAL_BOX_PLANES];
 ParticleEmitterType emitterType = ParticleEmitterType::CASCADE;
 glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
 
-glm::vec3 sourcePos = { 0, -9.5f, 0 };
+glm::vec3 sourcePos = { 0, -8.f, 0 };
 glm::vec3 sourceAngle = { 0, -1, 0 };
 float inertia = 1;
 bool randomInertia = false;
@@ -171,7 +171,7 @@ void GUI() {
 			ImGui::DragFloat3("Point A", &capsule.a[0], 1.f, -10.f, 10.f);
 			ImGui::DragFloat3("Point B", &capsule.b[0], 1.f, -10.f, 10.f);
 		}
-		else { sphere.radius = 0; }
+		else { capsule.radius = 0; }
 	}
 	// .........................
 

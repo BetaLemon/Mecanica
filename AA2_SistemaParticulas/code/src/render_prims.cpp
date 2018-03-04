@@ -4,7 +4,7 @@
 
 // Boolean variables allow to show/hide the primitives
 bool renderSphere = false;
-bool renderCapsule = true;
+bool renderCapsule = false;
 bool renderParticles = true;
 bool renderCloth = false;
 bool renderCube = false;
