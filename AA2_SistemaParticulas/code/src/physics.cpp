@@ -4,41 +4,57 @@
 #include <glm\geometric.hpp>
 #include <vector>
 
+// CONSTANTS:
+	// Plane Array ID (index):
 #define BOX_TOP 0
 #define BOX_BOTTOM 1
 #define BOX_LEFT 2
 #define BOX_RIGHT 3
 #define BOX_FRONT 4
 #define BOX_BACK 5
+	// Amount of planes for Box:
 #define TOTAL_BOX_PLANES 6
 
-#define MAX_PARTICLE_LIFE 3
-#define MAX_PARTICLE_NUM 10
+	// Maximum lifespan of particles:
+//#define MAX_PARTICLE_LIFE 3
+float MAX_PARTICLE_LIFE = 3;
 
+// Type of Emitter being used:
 enum class ParticleEmitterType{ FOUNTAIN, CASCADE };
-
+// Data structure for Particles:
 struct Particle {
 	glm::vec3 pos;
 	glm::vec3 vel;
 	float life;
 	glm::vec3 prevPos;
 	glm::vec3 prevVel;
+	bool isAlive(){
+		return life < MAX_PARTICLE_LIFE;
+	};
 };
-
+// Data structure for Planes:
 struct Plane {
 	glm::vec3 normal;
 	float d;
 };
 
+// Declaration of functions, defined below the main code:
 bool checkCollision(Plane plane, Particle particle);
 Particle GenerateParticle();
+void ParticlesUpdate(float dt);
+void ParticlesToGPU();
 
 //Particle particles[SHRT_MAX];	// Esto aquí muy feo.
-std::vector<Particle> particles;
+float *particlesGPU;
+Particle *particles;
 Plane planes[TOTAL_BOX_PLANES];
 ParticleEmitterType emitterType = ParticleEmitterType::CASCADE;
+glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
 
-float Ypos = 0;
+glm::vec3 sourcePos = { 0, 5, 0 };
+glm::vec3 sourceAngle = { 0, -1, 0 };
+float inertia;
+int EmissionRate = 1;
 
 namespace LilSpheres {															// Parámetros:
 	extern void updateParticles(int startIdx, int count, float* array_data);	// (donde empieza, cuántos elementos, un array así:
@@ -49,6 +65,7 @@ namespace LilSpheres {															// Parámetros:
 
 		Buscar información acerca de RING BUFFER!!!
 	*/
+	extern const int maxParticles;
 }
 
 bool show_test_window = false;
@@ -59,13 +76,17 @@ void GUI() {
 	// Do your GUI code here....
 	{	
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);//FrameRate
-		ImGui::SliderFloat("Y position of cascade", &Ypos, 0, 10);
+		//ImGui::SliderInt("Amount of particles", &amountParticles, 1, LilSpheres::maxParticles);
+		ImGui::SliderInt("Particles per wave (in 1 second)", &EmissionRate, 1, 100);
 		if(ImGui::Button("Reset particles")) {
-			for (int i = 0; i < particles.size(); i++) {
-				particles[i] = GenerateParticle();
+			for (int i = 0; i < LilSpheres::maxParticles; i++) {
+				particles[i].life = MAX_PARTICLE_LIFE+1;
 			}
 		}
-		ImGui::Text("Life of particle: %.3f", particles[0].life);
+		ImGui::InputFloat3("Particle Source Position", &sourcePos[0]);
+		ImGui::InputFloat3("Particle Source Velocity", &sourceAngle[0]);
+		ImGui::InputFloat("Particle Inertia", &inertia);
+		ImGui::InputFloat("Particle Lifespan", &MAX_PARTICLE_LIFE);
 	}
 	// .........................
 	
@@ -82,13 +103,11 @@ void PhysicsInit() {
 	// Do your initialization code here...
 	// ...................................
 
-	//for (int i = 0; i < SHRT_MAX; i++) { particles[i] = { glm::vec3(0, 0, 0), glm::vec3(0, 0, 0)}; }
-	for (int i = 0; i < MAX_PARTICLE_NUM; i++) {
-		//glm::vec3 randPos, randVel;
-		//randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
-		//randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
-		//particles.push_back({ randPos, randVel });
-		particles.push_back(GenerateParticle());
+	particles = new Particle[LilSpheres::maxParticles];
+	particlesGPU = new float[LilSpheres::maxParticles * 3];
+
+	for (int i = 0; i < EmissionRate; i++) {
+		particles[i] = GenerateParticle();
 	}
 
 	// Box planes setup:
@@ -96,7 +115,7 @@ void PhysicsInit() {
 	
 		// Top:
 	current.normal = glm::vec3(0, -1, 0);
-	current.d = 10;
+	current.d = -10;
 	planes[BOX_TOP] = current;
 		// Bottom:
 	current.normal = glm::vec3(0, 1, 0);
@@ -118,96 +137,89 @@ void PhysicsInit() {
 	current.normal = glm::vec3(0, 0, 1);
 	current.d = -5;
 	planes[BOX_BACK] = current;
+
+	ParticlesToGPU();
 }
 
 void PhysicsUpdate(float dt) {
 	// Do your update code here...
 	// ...........................
 	/*
-	if (particles.size() < MAX_PARTICLE_NUM) {
-		for (int i = 0; i < MAX_PARTICLE_NUM - particles.size(); i++) {
-			particles.push_back(GenerateParticle());
-		}
-	}
-	*/
-	glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
+	for (int i = 1; i < EmissionRate; i++) {
+		particles[i] = GenerateParticle();
+	}*/
 
 	/// PARTICLES:
-	for (int i = 0; i < particles.size(); i++){
-		glm::vec3 newPos, newVel;
-		/*
-		// Check collision:
-		// en lugar de cutre, habría que usar la formula de la Colision (la d es la de la ecuación del plano)
-		//Cutre:
-		if (current.pos.x > 5 || current.pos.x < -5) {
-			current.vel.x *= -1;
-		}
-		if (current.pos.y > 10 || current.pos.y < 0) {
-			current.vel.y *= -1;
-		}
-		if (current.pos.z > 5 || current.pos.z < -5) {
-			current.vel.z *= -1;
-		}
-		*/
-
-		particles[i].life += dt;
-		if (particles[i].life > MAX_PARTICLE_LIFE) {
-			/*glm::vec3 randPos, randVel;
-			randPos = glm::vec3((rand() % 10)-5, -(rand() % 10), (rand() % 10)-5);
-			randVel = glm::vec3(rand() % 1, rand() % 1, rand() % 1);
-			current = { randPos, randVel };
-			current.life = 0;
-			particles[i] = current;*/
-			particles[i] = GenerateParticle();
-			//particles.erase(particles.begin() + i);
-			break;
-		}
-
-		newPos = particles[i].pos + dt * particles[i].vel;
-		newVel = particles[i].vel + dt * gravity; // Assuming mass is 1.
-		particles[i].pos = newPos;
-		particles[i].vel = newVel;
-
-		// Check collision: BIEN HECHO!
-		for (int j = 0; j < TOTAL_BOX_PLANES; j++) {
-			if (checkCollision(planes[j], particles[i])) {
-				// Mirror position and velocity:
-				glm::vec3 mirroredPos, mirroredVel;
-				mirroredPos = newPos - 2 * (glm::dot(planes[j].normal, newPos) + planes[j].d)*planes[j].normal;
-				mirroredVel = newVel - 2 * (glm::dot(planes[j].normal, newVel) + planes[j].d)*planes[j].normal;
-
-				particles[i].pos = mirroredPos;
-				particles[i].vel = mirroredVel;
-			}
-		}
-
-		// Updating position and velocity:
-		//newPos = current.pos + dt * current.vel;
-		//newVel = current.vel + dt * gravity; // Assuming mass is 1.
-		particles[i].prevPos = particles[i].pos;
-		particles[i].prevVel = particles[i].vel;
-
-		//particles[i] = current;
-	}
+	ParticlesUpdate(dt);
 	
 	// Pasamos del array apto para CPU al array apto para GPU:
-	float particlesGPU[MAX_PARTICLE_NUM * 3];
-	int j = 0;
-	for (int i = 0; i < particles.size(); i++) {
-		particlesGPU[j] = particles[i].pos.x;
-		j++;
-		particlesGPU[j] = particles[i].pos.y;
-		j++;
-		particlesGPU[j] = particles[i].pos.z;
-		j++;
-	}
-	// Actualizamos las partículas:
-	LilSpheres::updateParticles(0, MAX_PARTICLE_NUM, particlesGPU);
+	ParticlesToGPU();
 }
 
 void PhysicsCleanup() {
 	// Do your cleanup code here...
 	// ............................
+}
+
+Particle MoveAndCollideParticle(Particle particle, float dt) {
+	glm::vec3 newPos, newVel;
+
+	newPos = particle.pos + dt * particle.vel;
+	newVel = particle.vel + dt * gravity; // Assuming mass is 1.
+	particle.pos = newPos;
+	particle.vel = newVel;
+
+	// Check collision:
+	for (int j = 0; j < TOTAL_BOX_PLANES; j++) {
+		if (checkCollision(planes[j], particle)) {
+			// Mirror position and velocity:
+			glm::vec3 mirroredPos, mirroredVel;
+			mirroredPos = newPos - 2 * (glm::dot(planes[j].normal, newPos) + planes[j].d)*planes[j].normal;
+			mirroredVel = newVel - 2 * (glm::dot(planes[j].normal, newVel) + planes[j].d)*planes[j].normal;
+
+			particle.pos = mirroredPos;
+			particle.vel = mirroredVel;
+		}
+	}
+
+	// Updating previous position and velocity:
+	particle.prevPos = particle.pos;
+	particle.prevVel = particle.vel;
+
+	return particle;
+}
+
+void ParticlesUpdate(float dt) {
+	bool needParticles = true;
+	int generatedParticles = 0;
+
+	for (int i = 0; i < LilSpheres::maxParticles; i++) {
+		// If the particle is still alive, get Updated:
+		if (particles[i].isAlive()) {
+			// Add time delta to lifespan of particle:
+			particles[i].life += dt;
+			particles[i] = MoveAndCollideParticle(particles[i], dt);
+		}
+		else if (needParticles) {
+			particles[i] = GenerateParticle();
+			generatedParticles++;
+		}
+		if (generatedParticles >= EmissionRate) { needParticles = false; }
+	}
+}
+
+void ParticlesToGPU() {
+	int j = 0;
+	for (int i = 0; i < LilSpheres::maxParticles; i++) {
+		particlesGPU[j] = (particles[i].pos.x);
+		j++;
+		particlesGPU[j] = (particles[i].pos.y);
+		j++;
+		particlesGPU[j] = (particles[i].pos.z);
+		j++;
+	}
+	// Actualizamos las partículas:
+	LilSpheres::updateParticles(0, LilSpheres::maxParticles, &particlesGPU[0]);
 }
 
 bool checkCollision(Plane plane, Particle particle) {
@@ -226,10 +238,14 @@ Particle GenerateParticle() {
 	case ParticleEmitterType::CASCADE:
 		randomZ = 0 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (10 - 0)));
 		randomZ -= 5;
-		randPos = glm::vec3(0, -Ypos, randomZ);
-		randVel = glm::vec3(0, -1, 0);
+		randPos = glm::vec3(sourcePos.x, sourcePos.y, randomZ);
+		randVel = sourceAngle;
 		break;
 	case ParticleEmitterType::FOUNTAIN:
+		randomZ = 0 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (10 - 0)));
+		randomZ -= 5;
+		randPos = glm::vec3(0, 9.99f, randomZ);
+		randVel = glm::vec3(0, 1, 0);
 		break;
 	default:
 		randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
@@ -242,3 +258,4 @@ Particle GenerateParticle() {
 	tmp.vel = randVel;
 	return tmp;
 }
+
