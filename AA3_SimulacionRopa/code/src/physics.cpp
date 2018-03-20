@@ -15,12 +15,9 @@
 	// Amount of planes for Box:
 #define TOTAL_BOX_PLANES 6
 
-	// Maximum lifespan of particles:
-//#define MAX_PARTICLE_LIFE 3
-float MAX_PARTICLE_LIFE = 3;
-
-// Type of Emitter being used:
-enum class ParticleEmitterType{ FOUNTAIN, CASCADE };
+// Cloth dimensions:
+#define CLOTH_WIDTH 14
+#define CLOTH_HEIGHT 18
 
 // Type of Capsule collision:
 enum class CapsuleCollision { A, B, BODY, NONE };
@@ -29,12 +26,8 @@ enum class CapsuleCollision { A, B, BODY, NONE };
 struct Particle {
 	glm::vec3 pos = { 0,0,0 };
 	glm::vec3 vel = { 0,0,0 };
-	float life = 0;
 	glm::vec3 prevPos = { 0,0,0 };
 	glm::vec3 prevVel = { 0,0,0 };
-	bool isAlive(){
-		return life < MAX_PARTICLE_LIFE;
-	};
 };
 // Data structure for Planes:
 struct Plane {
@@ -53,6 +46,7 @@ struct CapsuleObj {
 	float radius;
 };
 
+#pragma region FunctionDeclaration
 // Declaration of functions, defined below the main code:
 bool checkPlaneCollision(Plane plane, Particle particle);
 bool checkSphereCollision(Particle particle);
@@ -62,12 +56,12 @@ void ParticlesUpdate(float dt);
 Particle MoveAndCollideParticle(Particle particle, float dt);
 void ParticlesToGPU();
 float VectorMagnitude(glm::vec3 vector);
+#pragma endregion
 
-//Particle particles[SHRT_MAX];	// Esto aquí muy feo.
-float *particlesGPU;
-Particle *particles;
+#pragma region GlobalVariables
+float *clothGPU;
+Particle cloth[CLOTH_HEIGHT][CLOTH_WIDTH];
 Plane planes[TOTAL_BOX_PLANES];
-ParticleEmitterType emitterType = ParticleEmitterType::CASCADE;
 glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
 
 glm::vec3 sourcePos = { 0, -8.f, 0 };
@@ -79,7 +73,9 @@ int simulationSpeed = 1;
 float elasticity = 1;
 
 SphereObj sphere;
-CapsuleObj capsule;
+//CapsuleObj capsule;
+
+#pragma endregion
 
 namespace LilSpheres {															// Parámetros:
 	extern void updateParticles(int startIdx, int count, float* array_data);	// (donde empieza, cuántos elementos, un array así:
@@ -107,6 +103,13 @@ namespace Capsule {
 	extern void drawCapsule();
 }
 
+namespace ClothMesh {
+	extern void setupClothMesh();
+	extern void cleanupClothMesh();
+	extern void updateClothMesh(float* array_data);
+	extern void drawClothMesh();
+}
+
 extern bool renderSphere;
 extern bool renderCapsule;
 
@@ -114,68 +117,12 @@ bool show_test_window = false;
 void GUI() {
 	bool show = true;
 	ImGui::Begin("Physics Parameters", &show, 0);
-	int emitType = (int)emitterType;
 	// Do your GUI code here....
-	{	
+	{
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);//FrameRate
-		ImGui::Text("// SIMULATION");
-		//ImGui::SliderInt("Amount of particles", &amountParticles, 1, LilSpheres::maxParticles);
-		ImGui::Text("Emission Rate:");
-		ImGui::SliderInt("Particles / wave", &EmissionRate, 1, 500);
-		if(ImGui::Button("Reset particles")) {
-			for (int i = 0; i < LilSpheres::maxParticles; i++) {
-				particles[i].life = MAX_PARTICLE_LIFE+1;
-				particles[i].pos = { 0,0,0 };
-			}
-		}
-		ImGui::SliderInt("Simulation Speed (higher is slower)", &simulationSpeed, 1, 10);
-		ImGui::Separator();
-		ImGui::Text("// PARTICLE SOURCE");
-		if (emitterType == ParticleEmitterType::CASCADE) {
-			ImGui::Text("Cascade Properties:");
-			ImGui::SliderFloat("Height", &sourcePos[1], -10.0f, 0.0f);
-			ImGui::SliderFloat("X-Axis Pos.", &sourcePos[0], -5.0f, 5.0f);
-			ImGui::SliderFloat("Angle", &sourceAngle[0], -1.f, 1.f);
-		}
-		if (emitterType == ParticleEmitterType::FOUNTAIN) {
-			ImGui::Text("Fountain Properties:");
-			ImGui::SliderFloat("Height", &sourcePos[1], -10.0f, 0.0f);
-			ImGui::SliderFloat("X-Axis Pos.", &sourcePos[0], -5.0f, 5.0f);
-			ImGui::SliderFloat("Z-Axis Pos.", &sourcePos[2], -5.0f, 5.0f);
-		}
-		ImGui::DragFloat("Particle Inertia", &inertia, 0, 10);
-		ImGui::Checkbox("Random Inertia", &randomInertia);
-		ImGui::DragFloat("Particle Lifespan", &MAX_PARTICLE_LIFE, 0.5f, 0.5f, 20.f);
-		ImGui::Text("Emission Type:");
-		ImGui::RadioButton("Fountain", &emitType, (int)ParticleEmitterType::FOUNTAIN);
-		ImGui::RadioButton("Cascade", &emitType, (int)ParticleEmitterType::CASCADE);
-		ImGui::Separator();
-		ImGui::Text("// ELASTICITY");
-		ImGui::SliderFloat("Elastic coefficient", &elasticity, 0.f, 1.f);
-		ImGui::Separator();
-		ImGui::Text("// SPHERE");
-		ImGui::Checkbox("Show Sphere", &renderSphere);
-		if (renderSphere) {
-			if (sphere.radius == 0) { sphere.radius = 2; }
-			ImGui::SliderFloat("Radius", &sphere.radius, 0.1f, 10.f);
-			ImGui::DragFloat3("Center Position", &sphere.pos[0], 1.f, -10.f, 10.f);
-			//ImGui::DragFloat("Y-Axis Pos.", &sphere.pos[1], 1.f, -10.f, 10.f);
-			//ImGui::DragFloat("Z-Axis Pos.", &sphere.pos[2], 1.f, -10.f, 10.f);
-		}
-		else { sphere.radius = 0; }
-		ImGui::Text("// CAPSULE");
-		ImGui::Checkbox("Show Capsule", &renderCapsule);
-		if (renderCapsule) {
-			if (capsule.radius == 0) { capsule.radius = 2; }
-			ImGui::SliderFloat("Radius", &capsule.radius, 0.1f, 10.f);
-			ImGui::DragFloat3("Point A", &capsule.a[0], 1.f, -10.f, 10.f);
-			ImGui::DragFloat3("Point B", &capsule.b[0], 1.f, -10.f, 10.f);
-		}
-		else { capsule.radius = 0; }
 	}
 	// .........................
 
-	emitterType = (ParticleEmitterType)emitType;
 
 	ImGui::End();
 
@@ -190,16 +137,18 @@ void PhysicsInit() {
 	// Do your initialization code here...
 	// ...................................
 
-	particles = new Particle[LilSpheres::maxParticles];
-	particlesGPU = new float[LilSpheres::maxParticles * 3];
-
-	for (int i = 0; i < LilSpheres::maxParticles; i++) {
-		particles[i].life = MAX_PARTICLE_LIFE + 1;
+	// Init cloth particle values:
+	for (int y = 0; y < CLOTH_HEIGHT; y++) {
+		for (int x = 0; x < CLOTH_WIDTH; x++) {
+			cloth[y][x].pos = { x, y, 0 };
+			cloth[y][x].vel = { 0, 0, 0 };
+			cloth[y][x].prevPos = cloth[y][x].pos;
+			cloth[y][x].prevVel = cloth[y][x].vel;
+		}
 	}
 
-	for (int i = 0; i < EmissionRate; i++) {
-		particles[i] = GenerateParticle();
-	}
+	ConvertClothToGPU(cloth, clothGPU);	// Takes cloth as input and outputs to clothGPU.
+	ClothMesh::updateClothMesh(clothGPU);
 
 	// Box planes setup:
 	Plane current;
@@ -234,12 +183,12 @@ void PhysicsInit() {
 	sphere.pos = { 0,0,0 };
 	sphere.radius = 2.f;
 
-	capsule.a = { 0,0,0 };
+	/*capsule.a = { 0,0,0 };
 	capsule.b = { 0, 5, 0 };
-	capsule.radius = 2.f;
+	capsule.radius = 2.f;*/
 
 	Sphere::setupSphere(sphere.pos, sphere.radius);
-	Capsule::setupCapsule(capsule.a, capsule.b, capsule.radius);
+	//Capsule::setupCapsule(capsule.a, capsule.b, capsule.radius);
 }
 
 void PhysicsUpdate(float dt) {
@@ -259,24 +208,24 @@ void PhysicsUpdate(float dt) {
 	Sphere::updateSphere(sphere.pos, sphere.radius);
 	Sphere::drawSphere();
 
-	Capsule::updateCapsule(capsule.a, capsule.b, capsule.radius);
-	Capsule::drawCapsule();
+	//Capsule::updateCapsule(capsule.a, capsule.b, capsule.radius);
+	//Capsule::drawCapsule();
 }
 
 void PhysicsCleanup() {
 	// Do your cleanup code here...
 	// ............................
-	particles = nullptr;
-	particlesGPU = nullptr;
-	delete particles;
-	delete particlesGPU;
+	//cloth = nullptr;
+	clothGPU = nullptr;
+	delete cloth;
+	delete clothGPU;
 
 	Sphere::cleanupSphere();
 	Capsule::cleanupCapsule();
 }
 
 //	 SPECIAL FUNCTIONS
-
+/*
 // Updates particles:
 void ParticlesUpdate(float dt) {
 	bool needParticles = true;
@@ -383,21 +332,6 @@ Particle MoveAndCollideParticle(Particle particle, float dt) {
 	return particle;
 }
 
-// Translates the particle array to an array the GPU understands:
-void ParticlesToGPU() {
-	int j = 0;
-	for (int i = 0; i < LilSpheres::maxParticles; i++) {
-		particlesGPU[j] = (particles[i].pos.x);
-		j++;
-		particlesGPU[j] = (particles[i].pos.y);
-		j++;
-		particlesGPU[j] = (particles[i].pos.z);
-		j++;
-	}
-	// Actualizamos las partículas:
-	LilSpheres::updateParticles(0, LilSpheres::maxParticles, &particlesGPU[0]);
-}
-
 // Checks for collision with a plane:
 bool checkPlaneCollision(Plane plane, Particle particle) {
 	bool hasCollided = false;
@@ -415,6 +349,7 @@ bool checkSphereCollision(Particle particle) {
 	}
 	return hasCollided;
 }
+
 
 CapsuleCollision checkCapsuleCollider(Particle particle) {
 	CapsuleCollision collision = CapsuleCollision::NONE;
@@ -435,32 +370,27 @@ Particle GenerateParticle() {
 	glm::vec3 randPos, randVel;
 	Particle tmp;
 	float randomZ;
-	if (randomInertia) { inertia = (float)(rand() / RAND_MAX)*10; }
-	switch (emitterType) {
-	case ParticleEmitterType::CASCADE:
-		randomZ = 0 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (10 - 0)));
-		randomZ -= 5;
-		randPos = glm::vec3(sourcePos.x, sourcePos.y, randomZ);
-		randVel = sourceAngle*inertia;
-		break;
-	case ParticleEmitterType::FOUNTAIN:
-		randomZ = 0 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (10 - 0)));
-		randomZ -= 5;
-		randPos = sourcePos;
-		randVel = glm::vec3(((float)rand() / RAND_MAX) * 2.f - 1.0f, -inertia, ((float)rand() / RAND_MAX) * 2.f - 1.0f);
-		break;
-	default:
-		randPos = glm::vec3((rand() % 10) - 5, -(rand() % 10), (rand() % 10) - 5);
-		randVel = glm::vec3((rand() % 2) - 1, (rand() % 2) - 1, (rand() % 2) - 1);
-		break;
-	}
-
-	tmp.life = 0;
+	
 	tmp.pos = randPos;
 	tmp.vel = randVel;
 	return tmp;
 }
+*/
 
 float VectorMagnitude(glm::vec3 vector) {
 	return sqrt(pow(vector.x, 2) + pow(vector.y, 2) + pow(vector.z, 2));
+}
+
+void ConvertClothToGPU(Particle cloth[CLOTH_HEIGHT][CLOTH_WIDTH], float *gpu){
+	int gpuIndex = 0;
+	for (int y = 0; y < CLOTH_HEIGHT; y++) {
+		for (int x = 0; x < CLOTH_WIDTH; x++) {
+			gpu[gpuIndex] = cloth[y][x].pos.x;
+			gpuIndex++;
+			gpu[gpuIndex] = cloth[y][x].pos.y;
+			gpuIndex++;
+			gpu[gpuIndex] = cloth[y][x].pos.z;
+			gpuIndex++;
+		}
+	}
 }
