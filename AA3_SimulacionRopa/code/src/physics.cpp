@@ -56,6 +56,7 @@ void ParticlesUpdate(float dt);
 Particle MoveAndCollideParticle(Particle particle, float dt);
 void ParticlesToGPU();
 float VectorMagnitude(glm::vec3 vector);
+void ConvertClothToGPU(Particle cloth[CLOTH_HEIGHT][CLOTH_WIDTH], float *gpu);
 #pragma endregion
 
 #pragma region GlobalVariables
@@ -137,6 +138,8 @@ void PhysicsInit() {
 	// Do your initialization code here...
 	// ...................................
 
+	clothGPU = new float[CLOTH_WIDTH*CLOTH_HEIGHT * 3];
+
 	// Init cloth particle values:
 	for (int y = 0; y < CLOTH_HEIGHT; y++) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
@@ -146,6 +149,8 @@ void PhysicsInit() {
 			cloth[y][x].prevVel = cloth[y][x].vel;
 		}
 	}
+
+	ClothMesh::setupClothMesh();
 
 	ConvertClothToGPU(cloth, clothGPU);	// Takes cloth as input and outputs to clothGPU.
 	ClothMesh::updateClothMesh(clothGPU);
@@ -178,7 +183,7 @@ void PhysicsInit() {
 	current.d = -5;
 	planes[BOX_BACK] = current;
 
-	ParticlesToGPU();
+	//ParticlesToGPU();
 
 	sphere.pos = { 0,0,0 };
 	sphere.radius = 2.f;
@@ -200,10 +205,12 @@ void PhysicsUpdate(float dt) {
 	}*/
 
 	/// PARTICLES:
-	ParticlesUpdate(dt/simulationSpeed);
+	//ParticlesUpdate(dt/simulationSpeed);
+	ClothMesh::updateClothMesh(clothGPU);
+	ClothMesh::drawClothMesh;
 	
 	// Pasamos del array apto para CPU al array apto para GPU:
-	ParticlesToGPU();
+	//ParticlesToGPU();
 
 	Sphere::updateSphere(sphere.pos, sphere.radius);
 	Sphere::drawSphere();
@@ -222,6 +229,7 @@ void PhysicsCleanup() {
 
 	Sphere::cleanupSphere();
 	Capsule::cleanupCapsule();
+	ClothMesh::cleanupClothMesh();
 }
 
 //	 SPECIAL FUNCTIONS
