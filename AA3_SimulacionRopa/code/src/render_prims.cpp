@@ -3,10 +3,10 @@
 #include <glm\gtc\matrix_transform.hpp>
 
 // Boolean variables allow to show/hide the primitives
-bool renderSphere = false;
+bool renderSphere = true;
 bool renderCapsule = false;
-bool renderParticles = true;
-bool renderCloth = false;
+bool renderParticles = false;
+bool renderCloth = true;
 bool renderCube = false;
 
 namespace Sphere {
