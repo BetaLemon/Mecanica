@@ -194,14 +194,6 @@ void PhysicsUpdate(float dt) {
 		ClothInit();
 		resetTime = 0;
 	}
-	/*
-	for (int y = 0; y < CLOTH_HEIGHT; y++) {
-		for (int x = 0; x < CLOTH_WIDTH; x++) {
-			cloth[x][y] = MoveParticle(cloth[x][y], dt);
-			cloth[x][y] = CollideParticle(cloth[x][y]);
-		}
-	}
-	*/
 
 	PinParticle(0, 0);
 	PinParticle(13, 0);
@@ -216,6 +208,8 @@ void PhysicsUpdate(float dt) {
 	PinParticle(0, 0);
 	PinParticle(13, 0);
 
+	MoveParticles(dt);
+
 	if (shouldCollide) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
 			for (int y = 0; y < CLOTH_HEIGHT; y++) {
@@ -223,8 +217,7 @@ void PhysicsUpdate(float dt) {
 			}
 		}
 	}
-	
-	MoveParticles(dt);
+
 
 	PinParticle(0, 0);
 	PinParticle(13, 0);
@@ -233,7 +226,7 @@ void PhysicsUpdate(float dt) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
 			cloth[x][y].prevPos = cloth[x][y].pos;
 			cloth[x][y].prevVel = cloth[x][y].vel;
-			cloth[x][y].force = { 0,0,0 };
+			//cloth[x][y].force = { 0,0,0 };
 		}
 	}
 
