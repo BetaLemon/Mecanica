@@ -53,10 +53,11 @@ void ConvertClothToGPU(float *gpu);
 void CalculateForces();
 void AddGravity();
 void MoveParticles(float dt);
-Particle PinParticle(Particle particle, glm::vec3 pos);
+void PinParticle(int x, int y);
 void ClothInit();
 Particle CollideParticle(Particle particle);
 bool checkPlaneCollision(Plane plane, Particle particle);
+glm::vec3 SpringForce(float ke, float kd, glm::vec3 spring, glm::vec3 speedDiff);
 bool checkSphereCollision(Particle particle);
 #pragma endregion Declaration of functions, defined below the main code
 
@@ -64,11 +65,24 @@ bool checkSphereCollision(Particle particle);
 float *clothGPU;
 Particle cloth[CLOTH_WIDTH][CLOTH_HEIGHT];
 Plane planes[TOTAL_BOX_PLANES];
+
 glm::vec3 gravity = 9.81f * glm::vec3(0, -1, 0);
 float clothHeight = 8;
+bool shouldCollide = true;
+
 SphereObj sphere;
+
 float resetTime = 0;
-float elastCoeff = 0.5f;
+
+float stretchConst = 10;
+float stretchDamp = 2;
+
+float shearConst = 10;
+float shearDamp = 2;
+
+float bendConst = 10;
+float bendDamp = 2;
+
 float bounceCoeff = 0.5f;
 glm::vec3 defaultDistance;
 #pragma endregion
@@ -97,8 +111,21 @@ void GUI() {
 		ImGui::Separator();
 		ImGui::SliderFloat("Cloth Height", &clothHeight, 0, 10);
 		ImGui::Text("Time before resetting: %.2f", RESET_TIME - resetTime);
-		if (ImGui::Button("Reset now!")) { resetTime = RESET_TIME; }
-		ImGui::DragFloat("Elastic coefficient", &elastCoeff, 0.1f, 0, 200);
+		if (ImGui::Button("Reset now!")) { resetTime = RESET_TIME; sphere.pos = { rand() % 10 - 5, rand() % 10, rand() % 10 - 5 };
+		}
+		ImGui::DragFloat("Bounce coefficient", &bounceCoeff, 0.1f, 0, 200);
+		ImGui::Text("Stretch:");
+		ImGui::DragFloat("Stretch Constant", &stretchConst);
+		ImGui::DragFloat("Stretch Damping", &stretchDamp);
+		ImGui::Separator();
+		ImGui::Text("Shear:");
+		ImGui::DragFloat("Shear Constant", &shearConst);
+		ImGui::DragFloat("Shear Damping", &shearDamp);
+		ImGui::Separator();
+		ImGui::Text("Bend:");
+		ImGui::DragFloat("Bend Constant", &bendConst);
+		ImGui::DragFloat("Bend Damping", &bendDamp);
+		ImGui::Checkbox("Collisions", &shouldCollide);
 	}
 	// .........................
 
@@ -153,7 +180,7 @@ void PhysicsInit() {
 	current.d = -5;
 	planes[BOX_BACK] = current;
 
-	sphere.pos = { 0,4,0 };
+	sphere.pos = { rand()%10 - 5, rand()%10, rand()%10 -5 };
 	sphere.radius = 2.f;
 	Sphere::setupSphere(sphere.pos, sphere.radius);
 }
@@ -176,31 +203,37 @@ void PhysicsUpdate(float dt) {
 	}
 	*/
 
-	
+	PinParticle(0, 0);
+	PinParticle(13, 0);
 
 	CalculateForces();
 
+	PinParticle(0, 0);
+	PinParticle(13, 0);
+
 	AddGravity();
 
-	MoveParticles(dt);
-	glm::vec3 pos = cloth[0][0].pos;
-	pos.y = 8;
-	cloth[0][0] = PinParticle(cloth[0][0], pos);
+	PinParticle(0, 0);
+	PinParticle(13, 0);
 
-	pos = cloth[0][CLOTH_HEIGHT - 1].pos;
-	pos.y = 8;
-	cloth[0][CLOTH_HEIGHT - 1] = PinParticle(cloth[0][CLOTH_HEIGHT - 1], pos);
-
-	for (int x = 0; x < CLOTH_WIDTH; x++) {
-		for (int y = 0; y < CLOTH_HEIGHT; y++) {
-			cloth[x][y] = CollideParticle(cloth[x][y]);
+	if (shouldCollide) {
+		for (int x = 0; x < CLOTH_WIDTH; x++) {
+			for (int y = 0; y < CLOTH_HEIGHT; y++) {
+				cloth[x][y] = CollideParticle(cloth[x][y]);
+			}
 		}
 	}
+	
+	MoveParticles(dt);
+
+	PinParticle(0, 0);
+	PinParticle(13, 0);
 
 	for (int y = 0; y < CLOTH_HEIGHT; y++) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
 			cloth[x][y].prevPos = cloth[x][y].pos;
 			cloth[x][y].prevVel = cloth[x][y].vel;
+			cloth[x][y].force = { 0,0,0 };
 		}
 	}
 
@@ -259,18 +292,18 @@ void ClothInit() {
 		}
 	}
 
-	defaultDistance.x = 0.7f;
-	defaultDistance.y = 0;
-	defaultDistance.z = 0.55f;
+	defaultDistance.x = glm::abs(cloth[0][0].pos.x - cloth[1][1].pos.x);
+	defaultDistance.y = glm::abs(cloth[0][0].pos.y - cloth[1][1].pos.y);
+	defaultDistance.z = glm::abs(cloth[0][0].pos.z - cloth[1][1].pos.z);
 }
 
-Particle PinParticle(Particle particle, glm::vec3 pos) {
-	particle.pos = pos;
-	particle.prevPos = pos;
-	particle.vel = { 0,0,0 };
-	particle.prevVel = { 0,0,0 };
-	particle.force = { 0,0,0 };
-	return particle;
+void PinParticle(int x, int y) {
+	cloth[x][y].pos = { 4.5f - x * 0.7f, clothHeight, 5 - y * 0.55f };
+	cloth[x][y].prevPos = cloth[x][y].pos;
+	cloth[x][y].vel = { 0, 0, 0 };
+	cloth[x][y].prevVel = cloth[x][y].vel;
+	cloth[x][y].mass = 1;
+	cloth[x][y].force = { 0,0,0 };
 }
 
 void ConvertClothToGPU(float *gpu){
@@ -291,132 +324,192 @@ void ConvertClothToGPU(float *gpu){
 void CalculateForces() {
 	for (int y = 0; y < CLOTH_HEIGHT; y++) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
+
 			Particle node = cloth[x][y];
-			// Horizontal:
-			if (node.right != nullptr) { 
-				glm::vec3 spring = node.pos - node.right->pos;
-				glm::vec3 prevSpring = defaultDistance; // node.prevPos - node.right->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
+			// Direct link:
+			{
+				// Horizontal:
+				if (node.right != nullptr) {
+					glm::vec3 spring = node.pos - node.right->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - node.right->vel;
 
-				//force *= 5;
+					force = SpringForce(stretchConst, stretchDamp, spring, speedDiff);
 
-				node.force += force;
-				node.right->force += -force;
+					node.force += force;
+					node.right->force += -force;
+				}
+
+				if (node.left != nullptr) {
+					glm::vec3 spring = node.pos - node.left->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - node.left->vel;
+
+					force = SpringForce(stretchConst, stretchDamp, spring, speedDiff);
+
+					node.force += force;
+					node.left->force += -force;
+				}
+
+				// Vertical:
+				if (node.below != nullptr) {
+					glm::vec3 spring = node.pos - node.below->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - node.below->vel;
+
+					force = SpringForce(stretchConst, stretchDamp, spring, speedDiff);
+
+					node.force += force;
+					node.below->force += -force;
+				}
+
+				if (node.above != nullptr) {
+					glm::vec3 spring = node.pos - node.above->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - node.above->vel;
+
+					force = SpringForce(stretchConst, stretchDamp, spring, speedDiff);
+
+					node.force += force;
+					node.above->force += -force;
+				}
 			}
 
-			if (node.left != nullptr) {
-				glm::vec3 spring = node.pos - node.left->pos;
-				glm::vec3 prevSpring = defaultDistance; // node.prevPos - node.right->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
-
-				//force *= 5;
-
-				node.force += force;
-				node.left->force += -force;
-			}
-			
-			// Vertical:
-			if (node.below != nullptr) {
-				glm::vec3 spring = node.pos - node.below->pos;
-				glm::vec3 prevSpring = defaultDistance;//node.prevPos - node.below->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
-
-				//force *= 5;
-
-				node.force += force;
-				node.below->force += -force;
-			}
-
-			if (node.above != nullptr) {
-				glm::vec3 spring = node.pos - node.above->pos;
-				glm::vec3 prevSpring = defaultDistance; //node.prevPos - node.above->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
-
-				//force *= 5;
-
-				node.force += force;
-				node.above->force += -force;
-			}
-
-			// Diagonal:
+			// Diagonal link:
+			{
 				// above left:
-			if (node.above != nullptr && node.above->left != nullptr) {
-				/*glm::vec3 spring = node.pos - node.above->left->pos;
-				glm::vec3 prevSpring = defaultDistance; //node.prevPos - node.above->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
+				Particle * diagNode;
+				if (node.above != nullptr) { diagNode = node.above->left; }
+				else { diagNode = nullptr; }
+				if (diagNode != nullptr) {
+					glm::vec3 spring = node.pos - diagNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - diagNode->vel;
+					
+					force = SpringForce(shearConst, shearDamp, spring, speedDiff);
 
-				//force *= 5;
+					node.force += force;
+					diagNode->force += -force;
+				}
+				// above right:
+				if (node.above != nullptr) { diagNode = node.above->right; }
+				else { diagNode = nullptr; }
+				if (diagNode != nullptr) {
+					glm::vec3 spring = node.pos - diagNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - diagNode->vel;
+					
+					force = SpringForce(shearConst, shearDamp, spring, speedDiff);
 
-				node.force += force;
-				node.above->left->force += -force;*/
+					node.force += force;
+					diagNode->force += -force;
+				}
+
+				// below right:
+				if (node.below != nullptr) { diagNode = node.below->right; }
+				else { diagNode = nullptr; }
+				if (diagNode != nullptr) {
+					glm::vec3 spring = node.pos - diagNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - diagNode->vel;
+
+					force = SpringForce(shearConst, shearDamp, spring, speedDiff);
+
+					node.force += force;
+					diagNode->force += -force;
+				}
+
+				// below left:
+				if (node.below != nullptr) { diagNode = node.below->left; }
+				else { diagNode = nullptr; }
+				if (diagNode != nullptr) {
+					glm::vec3 spring = node.pos - diagNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - diagNode->vel;
+					force = SpringForce(shearConst, shearDamp, spring, speedDiff);
+
+					node.force += force;
+					diagNode->force += -force;
+				}
 			}
-			// above right:
-			if (node.above != nullptr && node.above->right != nullptr) {
-				/*glm::vec3 spring = node.pos - node.above->right->pos;
-				glm::vec3 prevSpring = defaultDistance; //node.prevPos - node.above->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
 
-				//force *= 5;
+			// Second link:
+			{
+				// double left:
+				Particle * doubleNode;
+				if (node.left != nullptr) { doubleNode = node.left->left; }
+				else { doubleNode = nullptr; }
+				if (doubleNode != nullptr) {
+					glm::vec3 spring = node.pos - doubleNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - doubleNode->vel;
 
-				node.force += force;
-				node.above->right->force += -force;*/
-			}
+					force = SpringForce(bendConst, bendDamp, spring, speedDiff);
 
-			// below right:
-			if (node.below != nullptr && node.below->right != nullptr) {
-				/*glm::vec3 spring = node.pos - node.below->right->pos;
-				glm::vec3 prevSpring = defaultDistance; //node.prevPos - node.above->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
+					node.force += force;
+					doubleNode->force += -force;
+				}
 
-				//force *= 5;
+					// double right:
+				if (node.right != nullptr) { doubleNode = node.right->right; }
+				else { doubleNode = nullptr; }
+				if (doubleNode != nullptr) {
+					glm::vec3 spring = node.pos - doubleNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - doubleNode->vel;
 
-				node.force += force;
-				node.below->right->force += -force;*/
-			}
+					force = SpringForce(bendConst, bendDamp, spring, speedDiff);
 
-			// below left:
-			if (node.below != nullptr && node.below->left != nullptr) {
-				/*glm::vec3 spring = node.pos - node.below->left->pos;
-				glm::vec3 prevSpring = defaultDistance; //node.prevPos - node.above->prevPos;
-				glm::vec3 force;
-				force.x = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.x / glm::length(spring));
-				force.y = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.y / glm::length(spring));
-				force.z = -elastCoeff * (glm::length(spring) - glm::length(prevSpring)) * (spring.z / glm::length(spring));
+					node.force += force;
+					doubleNode->force += -force;
+				}
 
-				//force *= 5;
+					// double above:
+				if (node.above != nullptr) { doubleNode = node.above->above; }
+				else { doubleNode = nullptr; }
+				if (doubleNode != nullptr) {
+					glm::vec3 spring = node.pos - doubleNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - doubleNode->vel;
 
-				node.force += force;
-				node.below->right->force += -force;*/
+					force = SpringForce(bendConst, bendDamp, spring, speedDiff);
+
+					node.force += force;
+					doubleNode->force += -force;
+				}
+
+					// double below:
+				if (node.below != nullptr) { doubleNode = node.below->below; }
+				else { doubleNode = nullptr; }
+				if (doubleNode != nullptr) {
+					glm::vec3 spring = node.pos - doubleNode->pos;
+					glm::vec3 force;
+					glm::vec3 speedDiff = node.vel - doubleNode->vel;
+
+					force = SpringForce(bendConst, bendDamp, spring, speedDiff);
+
+					node.force += force;
+					doubleNode->force += -force;
+				}
 			}
 		}
 	}
 }
 
+glm::vec3 SpringForce(float ke, float kd, glm::vec3 spring, glm::vec3 speedDiff) {
+	glm::vec3 normSpring = spring / glm::length(spring);
+	glm::vec3 prevSpring = defaultDistance;
+	glm::vec3 force;
+	force.x = -(ke * (glm::length(spring) - glm::length(prevSpring)) + kd * speedDiff.x * normSpring.x) * normSpring.x;
+	force.y = -(ke * (glm::length(spring) - glm::length(prevSpring)) + kd * speedDiff.y * normSpring.y) * normSpring.y;
+	force.z = -(ke * (glm::length(spring) - glm::length(prevSpring)) + kd * speedDiff.z * normSpring.z) * normSpring.z;
+	return force;
+}
+
 void AddGravity() {
 	for (int y = 0; y < CLOTH_HEIGHT; y++) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
-			cloth[x][y].force += gravity * cloth[x][y].mass;
+			cloth[x][y].force += gravity;
 		}
 	}
 }
@@ -425,7 +518,7 @@ void MoveParticles(float dt) {
 	glm::vec3 newPos, newVel;
 	for (int y = 0; y < CLOTH_HEIGHT; y++) {
 		for (int x = 0; x < CLOTH_WIDTH; x++) {
-			newPos = cloth[x][y].pos + (cloth[x][y].pos - cloth[x][y].prevPos) + cloth[x][y].force * pow(dt, 2);
+			newPos = cloth[x][y].pos + (cloth[x][y].pos - cloth[x][y].prevPos) + (cloth[x][y].force/cloth[x][y].mass) * pow(dt, 2);
 			newVel = (newPos - cloth[x][y].pos) / dt;
 
 			cloth[x][y].pos = newPos;
@@ -461,7 +554,16 @@ Particle CollideParticle(Particle particle) {
 
 		//Sphere Collision:
 		if (checkSphereCollision(particle)) {
-			collPoint = particle.pos;	// CUTRE!! TENDRÁ QUE SER EL PUNTO EXACTO!
+
+			// Calcula el punto el punto de colisión de la partícula con la esfera:
+				// Como funciona:  supongo que el punto está en la superfície de la esfera. En tal caso estará a 'radio de la esfera' distancia del centro de la esfera.
+				//					así pues creo un vector uni. que va desde el centro de la esfera hacia la posición de la partícula. La multiplico por el radio de la
+				//					porque quiero que esté a esa distancia y ahora la coloco respecto el centro de la esfera (sumándoselo).
+				//					- Puede que no sea el método dado en clase, pero creo tiene bastante sentido, y no voy a programar sistemas de ecuaciones. -
+			glm::vec3 partCent = particle.pos - sphere.pos;
+			collPoint = sphere.pos + (sphere.radius * (partCent / glm::length(partCent)));
+
+
 			Plane colPlane;
 			colPlane.normal = collPoint - sphere.pos;
 			colPlane.normal = glm::normalize(colPlane.normal);
