@@ -17,6 +17,7 @@ namespace Cube {
 
 struct Rigidbody {
 	float mass;
+	float size;
 	glm::vec3 position;	// At Center of Mass = "CoM".
 	glm::vec3 linearVel;
 	glm::quat orientation;
@@ -27,7 +28,22 @@ struct Rigidbody {
 	glm::vec3 torque;
 };
 
+struct Plane {
+	glm::vec3 normal;
+	float d;
+};
+
 Rigidbody rb1;
+bool process = false;
+bool showDebugInfo = true;
+
+#pragma region FunctionDeclaration
+void InitRB(Rigidbody &rb);
+Rigidbody AddGravityToRB(Rigidbody rb, float gravity);
+Rigidbody ComputeEulerRB(Rigidbody rb, float dt);
+glm::mat4 CubeTransformMatrix(Rigidbody rb);
+#pragma endregion
+
 
 bool show_test_window = false;
 void GUI() {
@@ -40,7 +56,19 @@ void GUI() {
 		
 	}
 	// .........................
-	
+	if(ImGui::Button("Process")) {
+		process = true;
+	}
+	if (ImGui::Button("Show/Hide Debug Info")) {
+		showDebugInfo = !showDebugInfo;
+	}
+	ImGui::Separator();
+	if (showDebugInfo) {
+		ImGui::TextColored(ImVec4(1, 0, 0, 1), "Debug Info:");
+		ImGui::DragFloat3("Position", (float*)&rb1.position);
+		ImGui::DragFloat3("Linear Velocity", (float*)&rb1.linearVel);
+	}
+
 	ImGui::End();
 
 	// Example code -- ImGui test window. Most of the sample code is in ImGui::ShowTestWindow()
@@ -54,18 +82,23 @@ void PhysicsInit() {
 	// Do your initialization code here...
 	// ...................................
 
+	InitRB(rb1);
+
 	Cube::setupCube();
 }
 
 void PhysicsUpdate(float dt) {
-	// Do your update code here...
-	// ...........................
+	if (process) {
+		// Do your update code here...
+		// ...........................
 
-	rb1 = AddGravityToRB(rb1, 9.81f);
-	rb1 = ComputeEulerRB(rb1, dt);
+		rb1 = AddGravityToRB(rb1, 9.81f);
+		rb1 = ComputeEulerRB(rb1, dt);
 
-	//glm::toMat4()
-
+		//glm::toMat4()
+		Cube::updateCube(CubeTransformMatrix(rb1));
+		process = false;
+	}
 	Cube::drawCube();
 }
 
@@ -74,6 +107,25 @@ void PhysicsCleanup() {
 	// ............................
 
 	Cube::cleanupCube();
+}
+
+void InitRB(Rigidbody &rb) {
+	Rigidbody _rb;
+
+	_rb.angularMomentum = glm::vec3(0);
+	_rb.forces = glm::vec3(0);
+	_rb.linearMomentum = glm::vec3(0);
+	_rb.linearVel = glm::vec3(0);
+	_rb.size = 1;
+	_rb.mass = 1;
+	_rb.Ibody[0] = glm::vec3(1 / 12 * _rb.mass * (pow(_rb.size,2) + pow(_rb.size,2)), 0, 0);	// Columna 0
+	_rb.Ibody[1] = glm::vec3(0, 1 / 12 * _rb.mass * (pow(_rb.size, 2) + pow(_rb.size, 2)), 0);	// Columna 1
+	_rb.Ibody[2] = glm::vec3(0, 0, 1 / 12 * _rb.mass * (pow(_rb.size, 2) + pow(_rb.size, 2)));	// Columna 2
+	_rb.orientation = glm::quat();
+	_rb.position = glm::vec3(0, 5, 0);
+	_rb.torque = glm::vec3(0);
+
+	rb = _rb;
 }
 
 Rigidbody AddGravityToRB(Rigidbody rb, float gravity) {
@@ -119,9 +171,14 @@ glm::mat3 QuatToMat(glm::quat qt) {
 
 glm::mat4 CubeTransformMatrix(Rigidbody rb) {
 	glm::mat4 mat;
-	mat[0] = glm::vec4();	// Columna 0
-	mat[1] = glm::vec4();	// Columna 1
-	mat[2] = glm::vec4();	// Columna 2
+
+	glm::mat3 tmp;
+	tmp = QuatToMat(rb.orientation);
+
+	mat[0] = glm::vec4(tmp[0].x, tmp[0].y, tmp[0].z, 0);	// Columna 0
+	mat[1] = glm::vec4(tmp[1].x, tmp[1].y, tmp[1].z, 0);	// Columna 1
+	mat[2] = glm::vec4(tmp[2].x, tmp[2].y, tmp[2].z, 0);	// Columna 2
 	mat[3] = glm::vec4(rb.position.x, rb.position.y, rb.position.z, 1);	// Columna 3
 
+	return mat;
 }
