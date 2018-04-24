@@ -6,6 +6,18 @@
 #include <glm\geometric.hpp>
 #include <vector>
 
+#pragma region ConstantDefines
+// Plane Array ID (index):
+#define BOX_TOP 0
+#define BOX_BOTTOM 1
+#define BOX_LEFT 2
+#define BOX_RIGHT 3
+#define BOX_FRONT 4
+#define BOX_BACK 5
+// Amount of planes for Box:
+#define TOTAL_BOX_PLANES 6
+#pragma endregion
+
 #pragma region RenderDependencies
 namespace Cube {
 	extern void setupCube();
@@ -14,6 +26,12 @@ namespace Cube {
 	extern void drawCube();
 }
 #pragma endregion
+
+struct Particle {
+	glm::vec3 pos, prevPos;
+	Particle() { pos = glm::vec3(0); prevPos = glm::vec3(0); };
+	Particle(glm::vec3 _pos) { pos = _pos; prevPos = _pos; };
+};
 
 struct Rigidbody {
 	float mass;
@@ -26,6 +44,7 @@ struct Rigidbody {
 	glm::mat3 Ibody;
 	glm::vec3 forces;
 	glm::vec3 torque;
+	Particle * boundingBox;
 };
 
 struct Plane {
@@ -33,17 +52,20 @@ struct Plane {
 	float d;
 };
 
+#pragma region GlobalVars
 Rigidbody rb1;
+Plane planes[TOTAL_BOX_PLANES];
 bool process = false;
 bool showDebugInfo = true;
+#pragma endregion
 
 #pragma region FunctionDeclaration
 void InitRB(Rigidbody &rb);
 Rigidbody AddGravityToRB(Rigidbody rb, float gravity);
 Rigidbody ComputeEulerRB(Rigidbody rb, float dt);
 glm::mat4 CubeTransformMatrix(Rigidbody rb);
+bool checkPlaneCollision(Plane plane, Particle particle);
 #pragma endregion
-
 
 bool show_test_window = false;
 void GUI() {
@@ -83,8 +105,8 @@ void PhysicsInit() {
 	// ...................................
 
 	InitRB(rb1);
-
 	Cube::setupCube();
+	Cube::updateCube(CubeTransformMatrix(rb1));
 }
 
 void PhysicsUpdate(float dt) {
@@ -94,6 +116,10 @@ void PhysicsUpdate(float dt) {
 
 		rb1 = AddGravityToRB(rb1, 9.81f);
 		rb1 = ComputeEulerRB(rb1, dt);
+
+		if (checkPlaneCollision(planes[BOX_BOTTOM], rb1.boundingBox[0])) {
+			printf("Putes, Harry, putes.");
+		}
 
 		//glm::toMat4()
 		Cube::updateCube(CubeTransformMatrix(rb1));
@@ -125,7 +151,57 @@ void InitRB(Rigidbody &rb) {
 	_rb.position = glm::vec3(0, 5, 0);
 	_rb.torque = glm::vec3(0);
 
+	//   4---------7
+	//  /|        /|
+	// / |       / |
+	//5---------6  |
+	//|  0------|--3
+	//| /       | /
+	//|/        |/
+	//1---------2
+
+	float len = _rb.size / 2;
+	_rb.boundingBox = new Particle[8];
+	_rb.boundingBox[0] = Particle(glm::vec3(-len, -len, -len) + _rb.position);
+	_rb.boundingBox[1] = Particle(glm::vec3(-len, -len, len) + _rb.position);
+	_rb.boundingBox[2] = Particle(glm::vec3(len, -len, len) + _rb.position);
+	_rb.boundingBox[3] = Particle(glm::vec3(len, -len, -len) + _rb.position);
+	_rb.boundingBox[4] = Particle(glm::vec3(-len, len, -len) + _rb.position);
+	_rb.boundingBox[5] = Particle(glm::vec3(-len, len, len) + _rb.position);
+	_rb.boundingBox[6] = Particle(glm::vec3(len, len, len) + _rb.position);
+	_rb.boundingBox[7] = Particle(glm::vec3(len, len, -len) + _rb.position);
+
 	rb = _rb;
+}
+
+void InitPlanes() {
+	// Box planes setup:
+	Plane current;
+
+	// Top:
+	current.normal = glm::vec3(0, -1, 0);
+	current.d = 10;
+	planes[BOX_TOP] = current;
+	// Bottom:
+	current.normal = glm::vec3(0, 1, 0);
+	current.d = 0;
+	planes[BOX_BOTTOM] = current;
+	// Left:
+	current.normal = glm::vec3(1, 0, 0);
+	current.d = -5;
+	planes[BOX_LEFT] = current;
+	// Right:
+	current.normal = glm::vec3(-1, 0, 0);
+	current.d = 5;
+	planes[BOX_RIGHT] = current;
+	// Front:
+	current.normal = glm::vec3(0, 0, -1);
+	current.d = 5;
+	planes[BOX_FRONT] = current;
+	// Back:
+	current.normal = glm::vec3(0, 0, 1);
+	current.d = -5;
+	planes[BOX_BACK] = current;
 }
 
 Rigidbody AddGravityToRB(Rigidbody rb, float gravity) {
@@ -181,4 +257,13 @@ glm::mat4 CubeTransformMatrix(Rigidbody rb) {
 	mat[3] = glm::vec4(rb.position.x, rb.position.y, rb.position.z, 1);	// Columna 3
 
 	return mat;
+}
+
+// Checks for collision with a plane:
+bool checkPlaneCollision(Plane plane, Particle particle) {
+	bool hasCollided = false;
+	if ((glm::dot(plane.normal, particle.prevPos) + plane.d)*(glm::dot(plane.normal, particle.pos) + plane.d) <= 0) {
+		hasCollided = true;
+	}
+	return hasCollided;
 }
