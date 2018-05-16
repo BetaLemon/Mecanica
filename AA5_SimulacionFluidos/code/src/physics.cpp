@@ -19,9 +19,15 @@
 #define FLUID_WIDTH 14
 #define FLUID_HEIGHT 18
 
+#define INIT_X_OFFSET -FLUID_WIDTH/2
+#define INIT_Z_OFFSET -FLUID_HEIGHT/2
+
 #define RESTART_DELAY 15
 
 #define MAX_WAVES 5
+
+#define PI 3.1415f
+#define G 9.81f
 #pragma endregion All the defines.
 
 #pragma region DataStructures
@@ -47,8 +53,11 @@ struct Plane {
 	float d;
 };
 
-struct SphereObj {
+struct Ball {
 	glm::vec3 pos;
+	glm::vec3 vel;
+	glm::vec3 force;
+	float mass;
 	float radius;
 };
 #pragma endregion Node, Fluid, Wave, Plane, SphereObj
@@ -56,7 +65,12 @@ struct SphereObj {
 #pragma region FunctionDeclaration
 Fluid InitFluid();
 Wave InitWave();
+void InitAllWaves(Wave * _waves);
+Ball InitSphere();
 void ConvertFluidToGPU(float *gpu, Fluid _fluid);
+Fluid CalculateWaves(Fluid fl, Wave *waves, int numOfWaves, float dt);
+Ball EulerSolver(Ball b, float dt);
+Ball AddGravity(Ball b);
 #pragma endregion Declaration of functions, defined below the main code
 
 #pragma region GlobalVariables
@@ -66,8 +80,12 @@ Wave waves[MAX_WAVES];
 Plane planes[TOTAL_BOX_PLANES];
 float startHeight = 5;
 float clock;
+float speed = 1;
 int activeWaves = 0;
 int prevActiveWaves = 0;
+Ball ball;
+bool showBall = false;
+extern bool renderSphere;
 #pragma endregion
 
 #pragma region NamespaceDependencies
@@ -94,15 +112,18 @@ void GUI() {
 	// Do your GUI code here....
 	{
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);//FrameRate
-		ImGui::Text("Simulation Clock: %.1f s", clock);
+		ImGui::Text("Simulation Clock: %.1f s (Restarts at 15s)", clock);
 		if (ImGui::Button("Reset Fluid")) {
-			clock = 0; fluid = InitFluid();
+			clock = 0; fluid = InitFluid(); InitAllWaves(waves);
 		}
+		ImGui::SliderFloat("Speed", &speed, 1, 20);
 		ImGui::Separator();
 		ImGui::Text("Active Waves: %d", activeWaves);
 		ImGui::SliderInt("Waves", &activeWaves, 0, MAX_WAVES);
 		ImGui::Separator();
 		ImGui::SliderFloat("Wave Start Height", &startHeight, 0, 10);
+		ImGui::Separator();
+		ImGui::Checkbox("Show Sphere", &showBall);
 	}
 	// .........................
 
@@ -118,6 +139,9 @@ void GUI() {
 
 void PhysicsInit() {
 	fluid = InitFluid();
+
+	InitAllWaves(waves);
+
 	//ConvertFluidToGPU(fluidGPU, fluid);
 	//ClothMesh::updateClothMesh(fluidGPU);
 }
@@ -125,12 +149,28 @@ void PhysicsInit() {
 void PhysicsUpdate(float dt) {
 	clock += dt;
 	if (prevActiveWaves != activeWaves) {	// Number of waves changed
-		for (int i = 0; i < activeWaves; i++) { waves[i] = InitWave(); }
+		InitAllWaves(waves);
 	}
-	if (clock > RESTART_DELAY) { clock = 0; fluid = InitFluid(); }
+	if (clock > RESTART_DELAY) {
+		clock = 0;
+		fluid = InitFluid(); 
+		if (showBall) { ball = InitSphere(); }
+		InitAllWaves(waves);
+	}
+
+	//for(int i = 0; i < activeWaves; i++) { fluid = CalculateWave(fluid, waves[i], clock); }
+	fluid = CalculateWaves(fluid, waves, activeWaves, clock*speed);
 
 	ConvertFluidToGPU(fluidGPU, fluid);
 	ClothMesh::updateClothMesh(fluidGPU);
+
+	if (showBall) {
+		ball = AddGravity(ball);
+		ball = EulerSolver(ball, clock * speed);
+	}
+
+	renderSphere = showBall;
+
 
 	// Set previous wave count:
 	prevActiveWaves = activeWaves;
@@ -148,7 +188,8 @@ Fluid InitFluid() {
 	Fluid _fluid;
 	for (int i = 0; i < FLUID_WIDTH; i++) {
 		for (int j = 0; j < FLUID_HEIGHT; j++) {
-			_fluid.nodes[i][j].pos = glm::vec3(i, startHeight, j);
+			_fluid.nodes[i][j].pos = glm::vec3(i + INIT_X_OFFSET, startHeight, j + INIT_Z_OFFSET);
+			_fluid.nodes[i][j].initPos = _fluid.nodes[i][j].pos;
 		}
 	}
 	return _fluid;
@@ -156,38 +197,115 @@ Fluid InitFluid() {
 
 Wave InitWave() {
 	Wave wv;
-	wv.amplitude = rand() % 10;
-	wv.frequency = rand() % 10;
-	wv.offset = rand() % 10;
-	wv.wavevector.x = rand() % 10;
+	wv.amplitude = ((double)rand() / (RAND_MAX));
+	wv.frequency = ((double)rand() / (RAND_MAX));
+	wv.offset = ((double)rand() / (RAND_MAX));
+	wv.wavevector.x = ((double)rand() / (RAND_MAX));
 	wv.wavevector.y = 0;	// ???
-	wv.wavevector.z = rand() % 10;
+	wv.wavevector.z = ((double)rand() / (RAND_MAX));
 	return wv;
+}
+
+void InitAllWaves(Wave * _waves) {
+	for (int i = 0; i < activeWaves; i++) { _waves[i] = InitWave(); }
+}
+
+Ball InitSphere() {
+	Ball tmp;
+	tmp.pos.x = rand() % 10 - 5;
+	tmp.pos.y = rand() % 10 + startHeight;
+	tmp.pos.z = rand() % 10 - 5;
+	tmp.radius = rand() % 10;
+	tmp.mass = 1;
+	tmp.force = glm::vec3(0);
+	tmp.vel = glm::vec3(0);
+	return tmp;
 }
 
 void ConvertFluidToGPU(float *gpu, Fluid _fluid){
 	int gpuIndex = 0;
 	for (int j = 0; j < FLUID_HEIGHT; j++) {
 		for (int i = 0; i < FLUID_WIDTH; i++) {
-			gpu[gpuIndex] = 0;
+			gpu[gpuIndex] = _fluid.nodes[i][j].pos.x;
 			gpuIndex++;
-			gpu[gpuIndex] = 0;
+			gpu[gpuIndex] = _fluid.nodes[i][j].pos.y;
 			gpuIndex++;
-			gpu[gpuIndex] = 0;
+			gpu[gpuIndex] = _fluid.nodes[i][j].pos.z;
 			gpuIndex++;
 		}
 	}
 }
 
-void CalculateWave(Fluid fl, Wave wave, float dt) {	// Gerstner Wave calculation
+// DEPRECATED:
+Fluid CalculateWave(Fluid fl, Wave wave, float dt) {	// Gerstner Wave calculation
 	for (int i = 0; i < FLUID_WIDTH; i++) {
 		for (int j = 0; j < FLUID_HEIGHT; j++) {
 			Node node = fl.nodes[i][j];
 			node.pos.x = node.initPos.x - (wave.wavevector.x) * wave.amplitude * sin(glm::dot(wave.wavevector, node.initPos) - wave.frequency*dt);
 			node.pos.z = node.initPos.z - (wave.wavevector.z) * wave.amplitude * sin(glm::dot(wave.wavevector, node.initPos) - wave.frequency*dt);
 			node.pos.y = wave.amplitude * cos(glm::dot(wave.wavevector, node.initPos) - wave.frequency * dt);
+			fl.nodes[i][j] = node;
 		}
 	}
+	return fl;
+}
+
+Fluid CalculateWaves(Fluid fl, Wave *w, int numOfWaves, float dt) {
+	for (int i = 0; i < FLUID_WIDTH; i++) {
+		for (int j = 0; j < FLUID_HEIGHT; j++) {
+			Node node = fl.nodes[i][j];
+			glm::vec3 waveCalc = glm::vec3(0);
+			for (int i = 0; i < numOfWaves; i++) {
+				waveCalc.x += (glm::normalize(w[i].wavevector).x) * w[i].amplitude * sin(glm::dot(w[i].wavevector, node.initPos) - w[i].frequency*dt);
+				waveCalc.z += (glm::normalize(w[i].wavevector).z) * w[i].amplitude * sin(glm::dot(w[i].wavevector, node.initPos) - w[i].frequency*dt);
+				waveCalc.y += w[i].amplitude * cos(glm::dot(w[i].wavevector, node.initPos) - w[i].frequency * dt);
+			}
+
+			node.pos.x = node.initPos.x - waveCalc.x;
+			node.pos.z = node.initPos.z - waveCalc.z;
+			node.pos.y = node.initPos.y + waveCalc.y;
+			fl.nodes[i][j] = node;
+		}
+	}
+	return fl;
+}
+
+float CalculateSphereSubmergeHeight(Ball sp, Wave * w, int numOfWaves, float dt) {
+	float height = 0;
+
+	for (int i = 0; i < numOfWaves; i++) {
+		height += w[i].amplitude * cos(glm::dot(w[i].wavevector, sp.pos) - w[i].frequency * dt);
+	}
+	return height;
+}
+
+float CalculateSphereVolume(Ball sp, float h) {	// h is the submerged sphere height.
+	/* https://en.wikipedia.org/wiki/Spherical_cap */
+	return ((PI * pow(h, 2)) / 3) * (3 * sp.radius - h);
+}
+
+glm::vec3 CalculateBuoyancyForce(Ball sp, float dt) {
+	float val;
+	val = CalculateSphereSubmergeHeight(sp, waves, activeWaves, dt);
+	val = CalculateSphereVolume(sp, val);
+
+	return G * val * glm::vec3(0, 1, 0);
+}
+
+Ball EulerSolver(Ball b, float dt) {
+	b.pos.x = b.pos.x + dt * b.vel.x;
+	b.pos.y = b.pos.y + dt * b.vel.y;
+	b.pos.z = b.pos.z + dt * b.vel.z;
+
+	b.vel.x = b.vel.x + dt * b.force.x / b.mass;
+	b.vel.y = b.vel.y + dt * b.force.y / b.mass;
+	b.vel.z = b.vel.z + dt * b.force.z / b.mass;
+	return b;
+}
+
+Ball AddGravity(Ball b) {
+	b.force += glm::vec3(0, -1 * G, 0);
+	return b;
 }
 
 #pragma endregion
