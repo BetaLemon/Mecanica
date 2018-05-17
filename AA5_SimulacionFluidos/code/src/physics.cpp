@@ -219,7 +219,7 @@ void InitAllWaves(Wave * _waves) {
 Ball InitBall() {
 	Ball tmp;
 	tmp.pos.x = GenerateRandom(-5, 5);
-	tmp.pos.y = GenerateRandom(startHeight+1, 10);
+	tmp.pos.y = GenerateRandom(startHeight+1, 15);
 	tmp.pos.z = GenerateRandom(-5, 5);
 	tmp.radius = GenerateRandom(0.5f, 1);
 	tmp.mass = 1;
@@ -277,11 +277,29 @@ Fluid CalculateWaves(Fluid fl, Wave *w, int numOfWaves, float dt) {
 }
 
 float CalculateSphereSubmergeHeight(Ball sp, Wave * w, int numOfWaves, float dt) {
-	float height = 0;
+	float height = startHeight;
 
 	for (int i = 0; i < numOfWaves; i++) {
 		height += w[i].amplitude * cos(glm::dot(w[i].wavevector, sp.pos) - w[i].frequency * dt);
 	}
+	
+	if (sp.pos.y > height) {	// ball center is over the surface
+		if (sp.pos.y - sp.radius > height) {	// ball center+radius over surface (the ball is in the air).
+			height = 0;
+		}
+		else {	// center is above height, but ball touches water.
+			height = height - (sp.pos.y - sp.radius);
+		}
+	}
+	else {	// ball center is under the surface
+		if (sp.pos.y + sp.radius > height) {	// ball center is under surface, but ball is not fully submerged.
+			height = height - sp.pos.y;
+		}
+		else {	// ball is fully submerged.
+			height = sp.radius * 2;
+		}
+	}
+
 	return height;
 }
 
@@ -317,7 +335,7 @@ Ball CalculateBallForces(Ball b, float dt) {
 }
 
 Ball AddGravity(Ball b) {
-	b.force += glm::vec3(0, -1 * G, 0);
+	b.force = glm::vec3(0, -1 * G, 0);
 	return b;
 }
 
