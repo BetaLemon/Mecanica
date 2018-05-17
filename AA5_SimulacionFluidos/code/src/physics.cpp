@@ -66,11 +66,13 @@ struct Ball {
 Fluid InitFluid();
 Wave InitWave();
 void InitAllWaves(Wave * _waves);
-Ball InitSphere();
+Ball InitBall();
 void ConvertFluidToGPU(float *gpu, Fluid _fluid);
 Fluid CalculateWaves(Fluid fl, Wave *waves, int numOfWaves, float dt);
 Ball EulerSolver(Ball b, float dt);
+Ball CalculateBallForces(Ball b, float dt);
 Ball AddGravity(Ball b);
+float GenerateRandom(float min, float max);
 #pragma endregion Declaration of functions, defined below the main code
 
 #pragma region GlobalVariables
@@ -81,8 +83,8 @@ Plane planes[TOTAL_BOX_PLANES];
 float startHeight = 5;
 float clock;
 float speed = 1;
-int activeWaves = 0;
-int prevActiveWaves = 0;
+int activeWaves = 1;
+int prevActiveWaves = 1;
 Ball ball;
 bool showBall = false;
 extern bool renderSphere;
@@ -119,11 +121,14 @@ void GUI() {
 		ImGui::SliderFloat("Speed", &speed, 1, 20);
 		ImGui::Separator();
 		ImGui::Text("Active Waves: %d", activeWaves);
-		ImGui::SliderInt("Waves", &activeWaves, 0, MAX_WAVES);
+		ImGui::SliderInt("Waves", &activeWaves, 1, MAX_WAVES);
 		ImGui::Separator();
 		ImGui::SliderFloat("Wave Start Height", &startHeight, 0, 10);
 		ImGui::Separator();
 		ImGui::Checkbox("Show Sphere", &showBall);
+		if(ImGui::Button("Reset Ball")) {
+			ball = InitBall();
+		}
 	}
 	// .........................
 
@@ -139,7 +144,7 @@ void GUI() {
 
 void PhysicsInit() {
 	fluid = InitFluid();
-
+	ball = InitBall();
 	InitAllWaves(waves);
 
 	//ConvertFluidToGPU(fluidGPU, fluid);
@@ -154,7 +159,7 @@ void PhysicsUpdate(float dt) {
 	if (clock > RESTART_DELAY) {
 		clock = 0;
 		fluid = InitFluid(); 
-		if (showBall) { ball = InitSphere(); }
+		ball = InitBall();
 		InitAllWaves(waves);
 	}
 
@@ -165,8 +170,9 @@ void PhysicsUpdate(float dt) {
 	ClothMesh::updateClothMesh(fluidGPU);
 
 	if (showBall) {
-		ball = AddGravity(ball);
-		ball = EulerSolver(ball, clock * speed);
+		ball = CalculateBallForces(ball, clock);
+		ball = EulerSolver(ball, dt * speed);
+		Sphere::updateSphere(ball.pos, ball.radius);
 	}
 
 	renderSphere = showBall;
@@ -210,12 +216,12 @@ void InitAllWaves(Wave * _waves) {
 	for (int i = 0; i < activeWaves; i++) { _waves[i] = InitWave(); }
 }
 
-Ball InitSphere() {
+Ball InitBall() {
 	Ball tmp;
-	tmp.pos.x = rand() % 10 - 5;
-	tmp.pos.y = rand() % 10 + startHeight;
-	tmp.pos.z = rand() % 10 - 5;
-	tmp.radius = rand() % 10;
+	tmp.pos.x = GenerateRandom(-5, 5);
+	tmp.pos.y = GenerateRandom(startHeight+1, 10);
+	tmp.pos.z = GenerateRandom(-5, 5);
+	tmp.radius = GenerateRandom(0.5f, 1);
 	tmp.mass = 1;
 	tmp.force = glm::vec3(0);
 	tmp.vel = glm::vec3(0);
@@ -285,11 +291,11 @@ float CalculateSphereVolume(Ball sp, float h) {	// h is the submerged sphere hei
 }
 
 glm::vec3 CalculateBuoyancyForce(Ball sp, float dt) {
-	float val;
-	val = CalculateSphereSubmergeHeight(sp, waves, activeWaves, dt);
-	val = CalculateSphereVolume(sp, val);
+	float h, vol;
+	h = CalculateSphereSubmergeHeight(sp, waves, activeWaves, dt);
+	vol = CalculateSphereVolume(sp, h);
 
-	return G * val * glm::vec3(0, 1, 0);
+	return G * vol * glm::vec3(0, 1, 0);
 }
 
 Ball EulerSolver(Ball b, float dt) {
@@ -300,12 +306,26 @@ Ball EulerSolver(Ball b, float dt) {
 	b.vel.x = b.vel.x + dt * b.force.x / b.mass;
 	b.vel.y = b.vel.y + dt * b.force.y / b.mass;
 	b.vel.z = b.vel.z + dt * b.force.z / b.mass;
+
+	return b;
+}
+
+Ball CalculateBallForces(Ball b, float dt) {
+	b = AddGravity(b);
+	b.force += CalculateBuoyancyForce(b, dt);
 	return b;
 }
 
 Ball AddGravity(Ball b) {
 	b.force += glm::vec3(0, -1 * G, 0);
 	return b;
+}
+
+float GenerateRandom(float min, float max) {
+	float random = ((float)rand()) / (float)RAND_MAX;
+	float diff = max - min;
+	float r = random * diff;
+	return min + r;
 }
 
 #pragma endregion
