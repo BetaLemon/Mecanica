@@ -86,8 +86,13 @@ float speed = 1;
 int activeWaves = 1;
 int prevActiveWaves = 1;
 Ball ball;
-bool showBall = false;
 extern bool renderSphere;
+// GUI:
+bool showBall = true;
+bool showCustomWave = false;
+bool showCustomBall = false;
+Wave customWave = { 0.1, 0.1, glm::vec3(1,0,0), 0 };
+Ball customBall = { glm::vec3(0,startHeight + 1,0), glm::vec3(0), glm::vec3(0), 1, 1 };
 #pragma endregion
 
 #pragma region NamespaceDependencies
@@ -124,10 +129,33 @@ void GUI() {
 		ImGui::SliderInt("Waves", &activeWaves, 1, MAX_WAVES);
 		ImGui::Separator();
 		ImGui::SliderFloat("Wave Start Height", &startHeight, 0, 10);
+		ImGui::Checkbox("Make your own wave!", &showCustomWave);
+		if (showCustomWave) {
+			ImGui::Separator();
+			ImGui::DragFloat("Amplitude", &customWave.amplitude, 0.05f, 0, 1);
+			ImGui::DragFloat("Frequency", &customWave.frequency, 0.5f, 0, 20);
+			ImGui::DragFloat3("Direction", &customWave.wavevector[0]);
+			ImGui::DragFloat("Offset (Phi)", &customWave.offset);
+			if (ImGui::Button("Apply!")) {
+				InitAllWaves(waves);
+			}
+		}
 		ImGui::Separator();
-		ImGui::Checkbox("Show Sphere", &showBall);
-		if(ImGui::Button("Reset Ball")) {
-			ball = InitBall();
+		ImGui::Checkbox("Show Ball", &showBall);
+		if (showBall) {
+			if (ImGui::Button("Reset Ball")) {
+				ball = InitBall();
+			}
+			ImGui::Checkbox("Customize Ball", &showCustomBall);
+			if (showCustomBall) {
+				ImGui::DragFloat3("Init. Position", &customBall.pos[0]);
+				ImGui::DragFloat3("Init. Velocity", &customBall.vel[0]);
+				ImGui::DragFloat("Mass", &customBall.mass);
+				ImGui::DragFloat("Radius", &customBall.radius);
+				if(ImGui::Button("Apply!")){
+					ball = InitBall();
+				}
+			}
 		}
 	}
 	// .........................
@@ -207,8 +235,9 @@ Wave InitWave() {
 	wv.frequency = ((double)rand() / (RAND_MAX));
 	wv.offset = ((double)rand() / (RAND_MAX));
 	wv.wavevector.x = ((double)rand() / (RAND_MAX));
-	wv.wavevector.y = 0;	// ???
+	wv.wavevector.y = ((double)rand() / (RAND_MAX));
 	wv.wavevector.z = ((double)rand() / (RAND_MAX));
+	if (showCustomWave) { wv = customWave; }
 	return wv;
 }
 
@@ -225,6 +254,7 @@ Ball InitBall() {
 	tmp.mass = 1;
 	tmp.force = glm::vec3(0);
 	tmp.vel = glm::vec3(0);
+	if (showCustomBall) { tmp = customBall; }
 	return tmp;
 }
 
