@@ -59,6 +59,7 @@ struct Ball {
 	glm::vec3 force;
 	float mass;
 	float radius;
+	float dragCoeff; // Cd de la formula de Drag Forces.
 };
 #pragma endregion Node, Fluid, Wave, Plane, SphereObj
 
@@ -88,6 +89,7 @@ int prevActiveWaves = 1;
 Ball ball;
 extern bool renderSphere;
 // GUI:
+bool disableReset = false;
 bool showBall = true;
 bool showCustomWave = false;
 bool showCustomBall = false;
@@ -119,11 +121,14 @@ void GUI() {
 	// Do your GUI code here....
 	{
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);//FrameRate
-		ImGui::Text("Simulation Clock: %.1f s (Restarts at 15s)", clock);
+		ImGui::Separator();
+		if(!disableReset) ImGui::Text("Simulation Clock: %.1f s (Restarts at 15s)", clock);
+		else ImGui::Text("Simulation Clock: %.1f s (Doesn't restart)", clock);
+		ImGui::Checkbox("Disable Reset", &disableReset);
 		if (ImGui::Button("Reset Fluid")) {
 			clock = 0; fluid = InitFluid(); InitAllWaves(waves);
 		}
-		ImGui::SliderFloat("Speed", &speed, 1, 20);
+		ImGui::SliderFloat("Speed (Breaks Ball)", &speed, 1, 20);
 		ImGui::Separator();
 		ImGui::Text("Active Waves: %d", activeWaves);
 		ImGui::SliderInt("Waves", &activeWaves, 1, MAX_WAVES);
@@ -152,6 +157,7 @@ void GUI() {
 				ImGui::DragFloat3("Init. Velocity", &customBall.vel[0]);
 				ImGui::DragFloat("Mass", &customBall.mass);
 				ImGui::DragFloat("Radius", &customBall.radius);
+				ImGui::DragFloat("Drag Coefficient", &customBall.dragCoeff, 0.2f, 0, 5);
 				if(ImGui::Button("Apply!")){
 					ball = InitBall();
 				}
@@ -184,7 +190,7 @@ void PhysicsUpdate(float dt) {
 	if (prevActiveWaves != activeWaves) {	// Number of waves changed
 		InitAllWaves(waves);
 	}
-	if (clock > RESTART_DELAY) {
+	if (clock > RESTART_DELAY && !disableReset) {
 		clock = 0;
 		fluid = InitFluid(); 
 		ball = InitBall();
@@ -232,11 +238,11 @@ Fluid InitFluid() {
 Wave InitWave() {
 	Wave wv;
 	wv.amplitude = ((double)rand() / (RAND_MAX));
-	wv.frequency = ((double)rand() / (RAND_MAX));
+	wv.frequency = GenerateRandom(0.1f, 5);
 	wv.offset = ((double)rand() / (RAND_MAX));
-	wv.wavevector.x = ((double)rand() / (RAND_MAX));
-	wv.wavevector.y = ((double)rand() / (RAND_MAX));
-	wv.wavevector.z = ((double)rand() / (RAND_MAX));
+	wv.wavevector.x = GenerateRandom(-1, 1);
+	wv.wavevector.y = GenerateRandom(-1, 1);
+	wv.wavevector.z = GenerateRandom(-1, 1);
 	if (showCustomWave) { wv = customWave; }
 	return wv;
 }
@@ -250,10 +256,11 @@ Ball InitBall() {
 	tmp.pos.x = GenerateRandom(-5, 5);
 	tmp.pos.y = GenerateRandom(startHeight+1, 15);
 	tmp.pos.z = GenerateRandom(-5, 5);
-	tmp.radius = GenerateRandom(0.5f, 1);
+	tmp.radius = 1;
 	tmp.mass = 1;
 	tmp.force = glm::vec3(0);
 	tmp.vel = glm::vec3(0);
+	tmp.dragCoeff = GenerateRandom(0, 5);
 	if (showCustomBall) { tmp = customBall; }
 	return tmp;
 }
@@ -338,12 +345,25 @@ float CalculateSphereVolume(Ball sp, float h) {	// h is the submerged sphere hei
 	return ((PI * pow(h, 2)) / 3) * (3 * sp.radius - h);
 }
 
+float CalculateDragArea(Ball b, float h) {
+	float circleRadius = sqrt(pow(b.radius, 2) - pow((b.radius - h), 2));
+	float circleArea = PI * pow(circleRadius, 2);
+	return circleArea;
+}
+
 glm::vec3 CalculateBuoyancyForce(Ball sp, float dt) {
 	float h, vol;
 	h = CalculateSphereSubmergeHeight(sp, waves, activeWaves, dt);
 	vol = CalculateSphereVolume(sp, h);
 
 	return G * vol * glm::vec3(0, 1, 0);
+}
+
+glm::vec3 CalculateDragForce(Ball b, float dt) {
+	// Considering that density is 1.
+	float h = CalculateSphereSubmergeHeight(b, waves, activeWaves, dt);
+	float area = CalculateDragArea(b, h);
+	return -0.5f * b.dragCoeff * area * b.vel;
 }
 
 Ball EulerSolver(Ball b, float dt) {
@@ -360,7 +380,9 @@ Ball EulerSolver(Ball b, float dt) {
 
 Ball CalculateBallForces(Ball b, float dt) {
 	b = AddGravity(b);
-	b.force += CalculateBuoyancyForce(b, dt);
+	glm::vec3 buoy = CalculateBuoyancyForce(b, dt);
+	b.force += buoy;
+	if (buoy != glm::vec3(0)) { b.force += CalculateDragForce(b, dt); }
 	return b;
 }
 
